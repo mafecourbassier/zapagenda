@@ -87,7 +87,7 @@ export function resolveRoute(hash, lastSegment = "barbearia") {
   if (path === "painel") return `${Object.hasOwn(segments, lastSegment) ? lastSegment : "barbearia"}/painel`;
   const [segment, screen, extra] = path.split("/");
   if (!Object.hasOwn(segments, segment) || extra !== undefined) return "";
-  return screen === undefined || screen === "painel" ? path : "";
+  return screen === undefined || screen === "painel" || screen === "cliente" ? path : "";
 }
 
 export const money = value => new Intl.NumberFormat("pt-BR", {
@@ -111,22 +111,39 @@ export const timeLabel = minutes => `${String(Math.floor(minutes / 60)).padStart
 export const timeValue = time => time.split(":").map(Number).reduce((hours, minutes) => hours * 60 + minutes);
 export const overlaps = (start, end, itemStart, itemEnd) => start < itemEnd && itemStart < end;
 
-export function isFree(items, date, start, end) {
-  return end > start && !items.some(item =>
-    item.date === date && item.status !== "canceled" && overlaps(start, end, item.start, item.end)
-  );
+
+const standardHours = { start: 480, end: 1080, breaks: [{ start: 720, end: 780 }] };
+export const businessHours = Object.fromEntries(
+  Object.keys(segments).map(key => [key, structuredClone(standardHours)])
+);
+
+export function isFree(items, date, start, end, hours = standardHours) {
+  return Number.isInteger(start) && Number.isInteger(end) &&
+    end > start && start >= hours.start && end <= hours.end &&
+    !hours.breaks.some(block => overlaps(start, end, block.start, block.end)) &&
+    !items.some(item => item.date === date && item.status !== "canceled" &&
+      overlaps(start, end, item.start, item.end));
 }
 
-export function suggestPlan({ gap, requests, appointments, services }) {
+export function availableSlots(items, date, duration, hours = standardHours) {
+  if (!Number.isInteger(duration) || duration <= 0) return [];
+  const slots = [];
+  for (let start = hours.start; start + duration <= hours.end; start += 30) {
+    if (isFree(items, date, start, start + duration, hours)) slots.push(start);
+  }
+  return slots;
+}
+
+export function suggestPlan({ gap, requests, appointments, services, hours = standardHours }) {
   const eligible = requests
     .map(request => ({ request, service: services.find(service => service.id === request.serviceId) }))
     .filter(({ request, service }) => request.status === "waiting" && request.date === gap.date && service);
-  const busy = appointments.filter(item => item.date === gap.date && item.status !== "canceled")
+  const busy = [...appointments.filter(item => item.date === gap.date && item.status !== "canceled"), ...hours.breaks]
     .sort((a, b) => a.start - b.start);
 
   const place = ({ request, service }, earliest) => {
-    const lastStart = Math.min(gap.end, request.end) - service.duration;
-    let start = Math.max(earliest, gap.start, request.start);
+    const lastStart = Math.min(gap.end, request.end, hours.end) - service.duration;
+    let start = Math.max(earliest, gap.start, request.start, hours.start);
     for (const appointment of busy) {
       if (appointment.end <= start) continue;
       if (start + service.duration <= appointment.start) break;
