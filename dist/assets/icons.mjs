@@ -1,0 +1,23 @@
+const paths = {
+  bolt: '<path d="M13 2 4 13h7l-1 9 10-12h-7l1-8Z" fill="currentColor" stroke="none"/>',
+  arrow: '<path d="M4 12h15m-6-6 6 6-6 6"/>',
+  diagonal: '<path d="M6 18 18 6M8 6h10v10"/>',
+  chevron: '<path d="m9 18 6-6-6-6"/>',
+  back: '<path d="M20 12H5m6-6-6 6 6 6"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 10h18m-13 5h2m4 0h2"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  scissors: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="m8 8 13 13M8 16 21 3m-7 9 7 7"/>',
+  razor: '<rect x="8" y="3" width="8" height="10" rx="2"/><path d="M8 7h8m-4 6v8m-2 0h4"/>',
+  spark: '<path d="M12 2c0 6 4 10 10 10-6 0-10 4-10 10 0-6-4-10-10-10 6 0 10-4 10-10Z"/>',
+  paint: '<path d="M10 4h4v5l4 3v7a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-7l4-3V4Zm-1 10h6"/>',
+  flower: '<path d="M12 9c-6-7-10 0-5 3-5 3-1 10 5 3 6 7 10 0 5-3 5-3 1-10-5-3Z"/><circle cx="12" cy="12" r="1.6"/>',
+  chart: '<path d="M3 3v18h18M7 16l4-5 3 2 6-7"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  users: '<circle cx="9" cy="8" r="3"/><path d="M3 20v-2c0-3 3-5 6-5s6 2 6 5v2m1-14a3 3 0 0 1 0 6m1 2c2.5.5 4 2 4 4v2"/>',
+  close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  link: '<path d="m10 13 4-4m-6 6-2 2a3 3 0 1 0 4 4l4-4a3 3 0 0 0 0-4m2-4 2-2a3 3 0 1 0-4-4l-4 4a3 3 0 0 0 0 4"/>',
+  phone: '<path d="M20 11.5a8 8 0 0 1-8 8l-4-.8L4 20l1.3-3.8a8 8 0 1 1 14.7-4.7Z"/><path d="M9 8c0 3 2 5 5 6l2-1-2-2-1 1c-1 0-2-1-2-2l1-1-2-2-1 1Z"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+};
+export const icon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? ""}</svg>`;
