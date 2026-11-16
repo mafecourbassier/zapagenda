@@ -3,13 +3,22 @@ export const segments = {
     title: "Barbearia",
     label: "Barbearia",
     studio: "Clube do Corte",
-    category: "Cortes, barba e combos",
+    panelTitle: "Painel da barbearia",
+    icon: "scissors",
+    cardHeadline: "Estilo em cada corte.",
+    cardDescription: "Cabelo, barba e o ritual completo.",
     image: "barber.webp",
     imageAlt: "Barbeiro acertando o corte de um cliente em uma barbearia de luz âmbar",
+    gallery: "galeria-barbearia.webp",
+    galleryAlt: "Cadeira de couro e bancada em madeira em uma barbearia de luz âmbar",
+    introTitle: "A pausa que faz parte do ritual.",
+    intro: "Luz baixa, couro e madeira. Um espaço para chegar com calma, conversar sobre o corte e sair com o acabamento que você gosta.",
+    district: "Centro",
+    hours: "das 9h às 19h",
+    feedback: ["Escolhi corte e barba juntos e já sabia quanto tempo ia levar.", "O encaixe apareceu no fim da tarde, no horário que eu podia ir."],
     eyebrow: "BARBEARIA · AGENDA ONLINE",
     headline: ["Corte certo.", "Hora marcada."],
     description: "Reserve o seu horário para corte, barba ou os dois no mesmo atendimento.",
-    color: "#d9a969",
     services: [
       { id: "corte", name: "Corte clássico", description: "Tesoura, máquina e acabamento.", duration: 45, price: 65, icon: "scissors" },
       { id: "barba", name: "Barba completa", description: "Desenho, toalha quente e finalização.", duration: 30, price: 45, icon: "razor" },
@@ -21,13 +30,22 @@ export const segments = {
     title: "Manicure",
     label: "Manicure",
     studio: "Studio Rosa",
-    category: "Unhas, esmaltação e gel",
+    panelTitle: "Painel da manicure",
+    icon: "spark",
+    cardHeadline: "Seu momento de cuidado.",
+    cardDescription: "Esmaltação, manutenção e gel.",
     image: "nails.webp",
     imageAlt: "Mãos com unhas amendoadas em esmalte vinho sobre cetim rosado",
+    gallery: "galeria-manicure.webp",
+    galleryAlt: "Bancada de manicure com flores, esmaltes e cadeiras vinho",
+    introTitle: "Detalhes que dão vontade de ficar.",
+    intro: "A bancada, as cores e o tempo de escolher um acabamento com calma. Cada serviço tem a sua duração reservada na agenda.",
+    district: "Vila Oliveira",
+    hours: "das 9h às 19h",
+    feedback: ["Reservei a manutenção e já consegui planejar a minha tarde.", "Entrei na fila e apareceu uma vaga para a esmaltação que eu queria."],
     eyebrow: "ESTÚDIO DE UNHAS · AGENDA ONLINE",
     headline: ["Um tempo", "só seu."],
     description: "Escolha seu serviço e reserve um momento para cuidar de você.",
-    color: "#e9afc1",
     services: [
       { id: "manutencao", name: "Manutenção em gel", description: "Cuidados e acabamento para o seu gel.", duration: 60, price: 90, icon: "spark" },
       { id: "esmaltacao", name: "Esmaltação", description: "A cor que você quer para o seu momento.", duration: 30, price: 50, icon: "paint" },
@@ -35,7 +53,42 @@ export const segments = {
     ],
     sampleNames: ["Bia", "Lívia", "Nina", "Clara"],
   },
+  estetica: {
+    title: "Estética",
+    label: "Estética",
+    studio: "Casa Orla · Estética facial",
+    panelTitle: "Painel da estética",
+    icon: "flower",
+    cardHeadline: "Cuidado começa aqui.",
+    cardDescription: "Avaliações e cuidados com a pele.",
+    image: "estetica.webp",
+    imageAlt: "Mulher de olhos fechados em um estúdio de estética com luz suave",
+    gallery: "galeria-estetica.webp",
+    galleryAlt: "Poltrona clara e cortina de linho em um estúdio de estética verde-sálvia",
+    introTitle: "Um espaço para ouvir a sua pele.",
+    intro: "Um estúdio de luz natural e tons minerais. O primeiro encontro é uma avaliação e um momento para conversar sobre o que você busca.",
+    district: "Mogilar",
+    hours: "das 9h às 19h",
+    feedback: ["Consegui reservar uma avaliação para conversar sobre minha pele.", "Vi quanto tempo durava a avaliação e escolhi um horário com calma."],
+    eyebrow: "ESTÉTICA FACIAL · AGENDA ONLINE",
+    headline: ["Pele em", "primeiro plano."],
+    description: "Reserve uma avaliação para conversar sobre sua pele e suas prioridades de cuidado.",
+    services: [
+      { id: "pele", name: "Avaliação facial", description: "Conversa inicial sobre sua pele e seus objetivos.", duration: 60, price: 120, icon: "flower" },
+      { id: "botox", name: "Avaliação para botox", description: "Horário de avaliação para conversar sobre toxina botulínica.", duration: 30, price: 100, icon: "spark" },
+      { id: "acne", name: "Avaliação de pele acneica", description: "Avaliação inicial voltada à pele com acne.", duration: 90, price: 150, icon: "paint" },
+    ],
+    sampleNames: ["Dani", "Carol", "Lara", "Sofia"],
+  },
 };
+
+export function resolveRoute(hash, lastSegment = "barbearia") {
+  const path = hash.startsWith("#/") ? hash.slice(2) : "";
+  if (path === "painel") return `${Object.hasOwn(segments, lastSegment) ? lastSegment : "barbearia"}/painel`;
+  const [segment, screen, extra] = path.split("/");
+  if (!Object.hasOwn(segments, segment) || extra !== undefined) return "";
+  return screen === undefined || screen === "painel" ? path : "";
+}
 
 export const money = value => new Intl.NumberFormat("pt-BR", {
   style: "currency", currency: "BRL", maximumFractionDigits: 0,
@@ -119,4 +172,21 @@ export function sampleData() {
       gap: null,
     }];
   }));
+}
+
+export function restoreDemo(saved) {
+  const defaults = sampleData();
+  return Object.fromEntries(Object.entries(defaults).map(([key, sample]) => {
+    const existing = saved?.[key];
+    const valid = Array.isArray(existing?.appointments) && Array.isArray(existing?.requests);
+    return [key, valid ? existing : sample];
+  }));
+}
+
+export function bookingMessage(kind, appointment, studio) {
+  const greeting = `Oi, ${appointment.name}! Aqui é ${studio}.`;
+  const date = formatDay(appointment.date, { day: "numeric", month: "long" });
+  const time = timeLabel(appointment.start);
+  if (kind === "confirmation") return `${greeting} Seu horário de ${date}, às ${time}, está confirmado. Se precisar remarcar, pode responder por aqui.`;
+  return `${greeting} Lembrando do seu horário de ${date}, às ${time}. Você consegue comparecer? Se precisar remarcar, avise por aqui.`;
 }

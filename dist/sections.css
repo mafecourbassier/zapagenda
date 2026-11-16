@@ -1,0 +1,145 @@
+body[data-theme="estetica"] {
+  color-scheme: light;
+  --bg: #f3f3e9;
+  --surface: #faf9ef;
+  --surface-up: #e6e9d9;
+  --text: #26392e;
+  --muted: #526657;
+  --accent: #335d48;
+  --accent-ink: #fffdf0;
+  --outline: #38574535;
+}
+
+.brand-wordmark { line-height: .95; display: block; }
+.brand-wordmark > small { display: block; margin-top: 5px; color: var(--accent); letter-spacing: .115em; font-size: 9px; line-height: 1; font-weight: 700; }
+.site-header .brand-mark { width: 40px; height: 40px; }
+body[data-theme="home"] .nav-shell .brand-wordmark > small { display: none; }
+.home-hero .intro-tag { font-size: 11px; }
+.footer-shell .brand-wordmark > small { font-size: 8px; }
+.home-hero { padding-bottom: 50px; }
+.segment-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.segment-card { aspect-ratio: 1.21; min-height: 313px; }
+.segment-card h2 { font-size: clamp(22px, 2.6vw, 35px); line-height: 1.05; }
+.segment-card--estetica { background: #42564b; }
+.segment-card--estetica img { object-position: 67% center; }
+.segment-card--estetica .segment-label svg { color: #c9d9a9; }
+.segment-card--estetica .card-shade { background: linear-gradient(0deg, #0d1913f7 0%, #152a1b75 49%, #142f2110 84%); }
+
+.estetica-hero { background: radial-gradient(ellipse at 41% 100%, #e3e8d7 0%, transparent 56%), var(--bg); }
+.estetica-hero .segment-hero-image {
+  left: auto;
+  right: 0;
+  top: 19px;
+  width: 52%;
+  height: calc(100% - 44px);
+  border-radius: 45% 0 0 45% / 68% 0 0 55%;
+  object-position: 69% 47%;
+}
+.estetica-hero .hero-veil { background: linear-gradient(90deg, transparent 43%, #f3f3e9b3 48%, #f3f3e96b 53%, transparent 63%); }
+.estetica-hero h1 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: clamp(68px, 8.1vw, 123px); letter-spacing: -.055em; }
+.estetica-hero h1 em { color: var(--accent); display: inline-block; padding-right: .06em; }
+.estetica-hero .button-ghost { background: #edf0e0bc; border-color: #335d485b; color: var(--accent); }
+.estetica-hero .studio-caption { bottom: 20px; }
+body[data-theme="estetica"] .section-head h2 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; letter-spacing: -.035em; }
+
+.space-section { position: relative; margin: 12px 0 0; padding: 51px 0; background: var(--surface); border-block: 1px solid var(--outline); }
+.space-layout { display: grid; grid-template-columns: .85fr 1.35fr; align-items: center; gap: clamp(22px, 5vw, 85px); }
+.space-copy h2, .visit-section h2 { margin: 12px 0 13px; font-size: clamp(32px, 5vw, 64px); letter-spacing: -.055em; line-height: .98; }
+.space-copy > p:not(.segment-eyebrow), .visit-section p:not(.segment-eyebrow) { max-width: 38ch; line-height: 1.55; color: var(--muted); }
+.space-copy .image-caption { margin-top: 15px; font-size: 11px; }
+.space-gallery { display: grid; grid-template-columns: 1.7fr 1fr; align-items: center; gap: 13px; }
+.space-gallery img { width: 100%; height: auto; object-fit: cover; display: block; border-radius: 12px; }
+.space-gallery .gallery-room { aspect-ratio: 1.2; }
+.space-gallery .gallery-detail { aspect-ratio: .85; object-position: 66% center; }
+body[data-theme="manicure"] .space-copy h2,
+body[data-theme="manicure"] .visit-section h2,
+body[data-theme="estetica"] .space-copy h2,
+body[data-theme="estetica"] .visit-section h2 {
+  font-family: "Instrument Serif", Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -.035em;
+}
+body[data-theme="manicure"] .space-gallery { grid-template-columns: 1fr 1.65fr; }
+body[data-theme="manicure"] .gallery-room { grid-column: 2; grid-row: 1; border-radius: 55% 55% 13px 13px; }
+body[data-theme="manicure"] .gallery-detail { grid-column: 1; grid-row: 1; border-radius: 11px; align-self: end; }
+body[data-theme="estetica"] .gallery-room { border-radius: 70px 70px 11px 11px; }
+body[data-theme="estetica"] .gallery-detail { border-radius: 50% 50% 11px 11px; }
+.feedback-section { padding-block: 57px 0; }
+.feedback-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 13px; }
+.feedback-card { margin: 0; padding: 24px; background: var(--surface); border: 1px solid var(--outline); border-radius: 13px; }
+.feedback-card > span { display: block; height: 28px; font-family: "Instrument Serif", Georgia, serif; color: var(--accent); font-size: 59px; line-height: .8; }
+.feedback-card blockquote { margin: 7px 0 0; font-size: 17px; line-height: 1.42; }
+.visit-section { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin-block: 53px 60px; padding: 28px; border: 1px solid var(--outline); border-radius: 16px; background: var(--surface); }
+.visit-section h2 { font-size: clamp(31px, 4.1vw, 55px); }
+.visit-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.dashboard-intro { margin-bottom: 25px; }
+body[data-theme="manicure"] .dashboard-intro h1,
+body[data-theme="estetica"] .dashboard-intro h1 {
+  font-family: "Instrument Serif", Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -.045em;
+}
+body[data-theme="barbearia"] .dashboard-intro h1 {
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: -.035em;
+}
+body[data-theme="barbearia"] .intro-tag,
+body[data-theme="manicure"] .intro-tag,
+body[data-theme="estetica"] .intro-tag { border-color: var(--outline); background: var(--surface-up); }
+body:is([data-theme="manicure"],[data-theme="estetica"]) .status-booked { color: #574388; background: #ebe5f9; }
+body:is([data-theme="manicure"],[data-theme="estetica"]) .status-canceled { color: #8d2937; background: #f8dbe0; }
+body:is([data-theme="manicure"],[data-theme="estetica"]) .status-completed { color: #245139; background: #dbece0; }
+body:is([data-theme="manicure"],[data-theme="estetica"]) .confirm-button,
+body:is([data-theme="manicure"],[data-theme="estetica"]) .accepted-summary { color: #245139; }
+body[data-theme="estetica"] .form-error { color: #9a3043; }
+.messages-panel { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 13px; padding: 15px; margin-top: 14px; background: var(--surface); border: 1px solid var(--outline); border-radius: 15px; }
+.messages-panel h2 { font-size: 17px; letter-spacing: -.03em; }
+.messages-panel p { color: var(--muted); font-size: 13px; line-height: 1.35; margin-top: 3px; }
+.button:disabled { opacity: .6; cursor: default; transform: none; }
+.message-form { display: grid; gap: 11px; }
+.message-form textarea { width: 100%; padding: 10px; color: var(--text); background: var(--surface-up); border: 1px solid var(--outline); border-radius: 8px; font: inherit; resize: vertical; }
+.message-feedback { min-height: 16px; color: var(--muted); font-size: 12px; }
+.screen-transition[data-next="estetica"] > div:first-child { background: #7b8f6b; }
+.screen-transition[data-next="estetica"] > div:nth-child(2) { background: #a5b29a; }
+.screen-transition[data-next="estetica"] > div:nth-child(3) { background: #dfe7d5; }
+.screen-transition[data-next="estetica"].playing > div { animation-name: sage-wrap; }
+@keyframes sage-wrap { 0% { transform: translateY(101%); border-radius: 34% 34% 0 0; } 47%, 57% { transform: translateY(0); border-radius: 0; } 100% { transform: translateY(-101%); border-radius: 0 0 34% 34%; } }
+
+@media (max-width: 970px) {
+  .segment-card { min-height: 255px; aspect-ratio: 1.08; }
+  .segment-card-copy { right: 17px; }
+  .segment-card h2 { padding-right: 35px; }
+  .segment-card p { padding-right: 44px; }
+  .nav-shell { column-gap: 10px; }
+  nav { gap: 21px; }
+  .nav-extra { display: none; }
+  .estetica-hero h1 { font-size: clamp(59px, 8.8vw, 91px); }
+  .visit-section { align-items: flex-start; flex-direction: column; }
+}
+@media (max-width: 640px) {
+  .site-header .brand-mark { width: 33px; height: 33px; }
+  .segment-grid { grid-template-columns: 1fr; }
+  .segment-card { min-height: 200px; max-height: 266px; aspect-ratio: 1.57; }
+  .segment-card h2 { font-size: 27px; }
+  .segment-card p { padding-right: 42px; }
+  .home-hero { padding-bottom: 28px; }
+  .estetica-hero .segment-hero-image { width: 79%; height: 100%; top: 0; border-radius: 49% 0 0 48% / 65% 0 0 55%; object-position: 73% center; }
+  .estetica-hero .hero-veil { background: linear-gradient(90deg, #f3f3e9fc 5%, #f3f3e9e6 42%, #f3f3e99c 85%, #f3f3e95e); }
+  .estetica-hero h1 { font-size: clamp(57px, 12.9vw, 83px); }
+  .space-section { margin: 5px 0 0; padding: 24px 0; }
+  .space-layout { grid-template-columns: 1fr; gap: 17px; }
+  .space-copy h2 { margin: 8px 0 9px; }
+  .space-copy .image-caption { margin-top: 8px; }
+  .space-gallery { gap: 9px; }
+  .feedback-section { padding-top: 30px; }
+  .feedback-grid { grid-template-columns: 1fr; gap: 9px; }
+  .feedback-card { padding: 15px; }
+  .feedback-card blockquote { font-size: 15px; }
+  .visit-section { margin-block: 28px 36px; padding: 16px; }
+  .visit-actions .button { padding-inline: 10px; font-size: 12px; }
+  .messages-panel { grid-template-columns: auto 1fr; }
+  .messages-panel > .button { grid-column: 1 / -1; }
+  .dashboard-intro { margin-bottom: 16px; }
+}

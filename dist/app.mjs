@@ -1,5 +1,8 @@
 import { icon } from "./assets/icons.mjs";
-import { segments, money, dayKey, formatDay, timeLabel, timeValue, isFree, suggestPlan, sampleData } from "./model.mjs";
+import {
+  segments, money, dayKey, formatDay, timeLabel, timeValue, isFree,
+  suggestPlan, sampleData, restoreDemo, resolveRoute, bookingMessage,
+} from "./model.mjs";
 
 const header = document.querySelector("#header");
 const main = document.querySelector("#main");
@@ -12,7 +15,7 @@ const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const storageKey = "zapagenda:prototype:v1";
 let state = readState();
 let route = "";
-let panelSegment = Object.hasOwn(segments, location.hash.slice(2)) ? location.hash.slice(2) : "barbearia";
+let panelSegment = resolveRoute(location.hash).split("/")[0] || "barbearia";
 let routeSequence = 0;
 let slideTimer;
 let noticeTimer;
@@ -21,13 +24,14 @@ let previousFocus;
 
 function readState() {
   try {
-    const saved = JSON.parse(localStorage.getItem(storageKey));
-    if (saved?.barbearia?.appointments && saved?.manicure?.appointments) return saved;
+    return restoreDemo(JSON.parse(localStorage.getItem(storageKey)));
   } catch {
     // Private browsing and invalid demo data fall back to the examples.
   }
   return sampleData();
 }
+
+const isPanel = path => path.endsWith("/painel");
 
 function saveState() {
   try {
@@ -42,38 +46,40 @@ const safe = value => String(value).replace(/[&<>"']/g, character =>
 );
 
 function brand() {
-  return `<a href="#/" class="brand" aria-label="ZapAgenda — início">
-    <span class="brand-mark">${icon("bolt", 19)}</span><span>Zap<span class="brand-accent">Agenda</span></span>
+  return `<a href="#/" class="brand" aria-label="ZapAgenda, por Contrabarra — início">
+    <span class="brand-mark">${icon("bolt", 19)}</span><span class="brand-wordmark">Zap<span class="brand-accent">Agenda</span><small>POR CONTRABARRA</small></span>
   </a>`;
 }
 
 function navLink(path, label) {
-  return `<a href="#/${path}" ${route === path ? 'aria-current="page"' : ""}>${label}</a>`;
+  return `<a href="#/${path}" ${route === path || (path && route === `${path}/painel`) ? 'aria-current="page"' : ""}>${label}</a>`;
 }
 
 function renderFrame() {
+  const key = route.split("/")[0];
+  const segment = segments[key];
+  const panelLink = segment && !isPanel(route)
+    ? `<a class="button nav-action" href="#/${key}/painel" aria-label="${segment.panelTitle}">${icon("calendar", 16)} <span>Painel<span class="nav-extra"> ${segment.panelTitle.slice(7)}</span></span></a>`
+    : "";
   header.innerHTML = `<div class="frame nav-shell">
     ${brand()}
     <nav aria-label="Navegação principal">
       ${navLink("", "Início")}
-      ${navLink("barbearia", "Barbearia")}
-      ${navLink("manicure", "Manicure")}
+      ${Object.entries(segments).map(([segmentKey, item]) => navLink(segmentKey, item.label)).join("")}
     </nav>
-    <a class="button nav-action ${route === "painel" ? "active" : ""}" href="#/painel">${icon("calendar", 16)} <span>Painel<span class="nav-extra"> do negócio</span></span></a>
+    ${panelLink}
   </div>`;
-  footer.innerHTML = `<div class="frame footer-shell">${brand()}<p>Projeto Contrabarra · Startup Challenge UMC</p>
-    <a href="#/painel">Painel do negócio ${icon("diagonal", 15)}</a></div>`;
+  footer.innerHTML = `<div class="frame footer-shell">${brand()}<p>Startup Challenge UMC · Mogi das Cruzes</p>
+    <a href="${segment && !isPanel(route) ? `#/${key}/painel` : "#/"}">${segment && !isPanel(route) ? segment.panelTitle : "Explorar espaços"} ${icon("diagonal", 15)}</a></div>`;
 }
 
 function homeCard(key, segment) {
-  const headline = key === "barbearia" ? "Estilo em cada corte." : "Seu momento de cuidado.";
-  const description = key === "barbearia" ? "Reserve cortes, barba e combos." : "Agende esmaltação, manutenção ou alongamento.";
   return `<a class="segment-card segment-card--${key}" href="#/${key}" aria-label="Entrar em ${segment.label}">
     <img src="./assets/${segment.image}" alt="" width="1200" height="800" fetchpriority="high">
     <div class="card-shade"></div>
     <div class="segment-card-copy">
-      <span class="segment-label">${icon(key === "barbearia" ? "scissors" : "spark", 15)} ${segment.label}</span>
-      <h2>${headline}</h2><p>${description}</p>
+      <span class="segment-label">${icon(segment.icon, 15)} ${segment.label}</span>
+      <h2>${segment.cardHeadline}</h2><p>${segment.cardDescription}</p>
     </div>
     <span class="card-arrow">${icon("diagonal", 24)}</span>
   </a>`;
@@ -82,21 +88,17 @@ function homeCard(key, segment) {
 function renderHome() {
   main.innerHTML = `<section class="home-hero frame">
     <div class="hero-copy reveal">
-      <p class="intro-tag"><span></span> AGENDAMENTOS E ENCAIXES</p>
+      <p class="intro-tag"><span></span> CONTRABARRA · STARTUP CHALLENGE UMC</p>
       <h1>Sua agenda,<br><em>seu estilo.</em></h1>
       <p class="hero-lede">Reserve seu horário ou encontre um encaixe no seu lugar favorito.</p>
     </div>
     <div class="segment-grid reveal">${Object.entries(segments).map(([key, segment]) => homeCard(key, segment)).join("")}</div>
-  </section>
-  <section class="business-strip frame">
-    <div><h2>Abriu um horário?</h2><p>Veja quem pode encaixar e acompanhe os atendimentos que voltaram para a agenda.</p></div>
-    <a class="button button-outline" href="#/painel">Experimentar o painel ${icon("arrow", 18)}</a>
   </section>`;
 }
 
 function renderSegment(key) {
   const segment = segments[key];
-  const other = key === "barbearia" ? "manicure" : "barbearia";
+  const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${segment.district}, Mogi das Cruzes, SP`)}`;
   main.innerHTML = `<section class="segment-hero ${key}-hero">
     <img class="segment-hero-image" src="./assets/${segment.image}" alt="${segment.imageAlt}" width="1200" height="800" fetchpriority="high">
     <div class="hero-veil"></div>
@@ -121,7 +123,37 @@ function renderSegment(key) {
       <div class="service-meta"><span>${icon("clock", 15)} ${service.duration} min</span><strong>${money(service.price)}</strong></div>
       <button class="button service-button" data-action="book" data-segment="${key}" data-service="${service.id}">Ver horários ${icon("arrow", 16)}</button>
     </article>`).join("")}</div>
-    <div class="switch-section"><a href="#/${other}" class="button button-outline">Conhecer ${segments[other].label} ${icon("diagonal", 18)}</a></div>
+  </section>
+  <section class="space-section" aria-labelledby="space-title">
+    <div class="frame space-layout">
+      <div class="space-copy">
+        <p class="segment-eyebrow">O ESPAÇO</p>
+        <h2 id="space-title">${segment.introTitle}</h2>
+        <p>${segment.intro}</p>
+        <p class="image-caption">Imagens conceituais do espaço.</p>
+      </div>
+      <div class="space-gallery">
+        <img class="gallery-room" src="./assets/${segment.gallery}" alt="${segment.galleryAlt}" width="1200" height="800" loading="lazy">
+        <img class="gallery-detail" src="./assets/${segment.image}" alt="${segment.imageAlt}" width="1200" height="800" loading="lazy">
+      </div>
+    </div>
+  </section>
+  <section class="frame feedback-section" aria-labelledby="feedback-title">
+    <div class="section-head">
+      <h2 id="feedback-title">Como seria a experiência.</h2><span>Depoimentos fictícios</span>
+    </div>
+    <div class="feedback-grid">${segment.feedback.map(quote => `<figure class="feedback-card"><span aria-hidden="true">“</span><blockquote>${quote}</blockquote></figure>`).join("")}</div>
+  </section>
+  <section class="frame visit-section" aria-labelledby="visit-title">
+    <div>
+      <p class="segment-eyebrow">LOCALIZAÇÃO DE DEMONSTRAÇÃO</p>
+      <h2 id="visit-title">${segment.district}, Mogi das Cruzes.</h2>
+      <p>Unidade fictícia · Janela da agenda ${segment.hours}</p>
+    </div>
+    <div class="visit-actions">
+      <a class="button button-outline" href="${mapUrl}" target="_blank" rel="noopener noreferrer">Ver bairro no mapa ${icon("diagonal", 17)}</a>
+      <button class="button button-primary" data-action="book" data-segment="${key}">Ver horários ${icon("arrow", 19)}</button>
+    </div>
   </section>`;
 }
 
@@ -174,12 +206,9 @@ function renderDashboard() {
   const appointments = [...data.appointments].sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start);
   main.innerHTML = `<section class="frame dashboard">
     <div class="dashboard-intro">
-      <div><p class="intro-tag"><span></span> AMBIENTE DE DEMONSTRAÇÃO</p><h1>Painel do negócio<span>.</span></h1>
-      <p>Experimente abrir uma vaga, preencher o horário e concluir o atendimento.</p></div>
-      <a href="#/${panelSegment}" class="button button-outline">Ver página de reserva ${icon("diagonal", 18)}</a>
-    </div>
-    <div class="dashboard-switch" aria-label="Filtrar por segmento">
-      ${Object.entries(segments).map(([key, item]) => `<button class="button" type="button" data-action="panel-segment" data-segment="${key}" aria-pressed="${panelSegment === key}">${icon(key === "barbearia" ? "scissors" : "spark", 17)} ${item.label}</button>`).join("")}
+      <div><p class="intro-tag"><span></span> AMBIENTE DE DEMONSTRAÇÃO</p><h1>${segment.panelTitle}<span>.</span></h1>
+      <p>${segment.studio} · Agenda, lista de espera e encaixes.</p></div>
+      <a href="#/${panelSegment}" class="button button-outline">Ver página do espaço ${icon("diagonal", 18)}</a>
     </div>
     <div class="metrics">
       <article>${icon("calendar", 21)}<div><p>Horários marcados</p><strong>${booked}</strong></div></article>
@@ -196,24 +225,32 @@ function renderDashboard() {
         ${renderGap(data, segment)}
       </section>
     </div>
-    <div class="dashboard-foot"><p>Dados fictícios e ações salvas neste navegador.</p><button class="text-button" data-action="reset">Reiniciar simulação</button></div>
+    <section class="messages-panel" aria-labelledby="mensagens-titulo">
+      <div class="service-symbol">${icon("phone", 24)}</div>
+      <div><h2 id="mensagens-titulo">WhatsApp assistido</h2><p>Monte a confirmação ou o lembrete. Você copia e envia para o cliente.</p></div>
+      <button class="button button-outline" data-action="messages" ${booked ? "" : "disabled"}>Preparar mensagem ${icon("arrow", 17)}</button>
+    </section>
+    <div class="dashboard-foot"><p>Dados fictícios deste segmento, salvos neste navegador.</p><button class="text-button" data-action="reset">Reiniciar este painel</button></div>
   </section>`;
 }
 
 function paint(next) {
   route = next;
-  if (Object.hasOwn(segments, next)) panelSegment = next;
-  document.body.dataset.theme = next === "" ? "home" : next;
-  document.title = next === "" ? "ZapAgenda — Sua agenda, seu estilo." : `${segments[next]?.title ?? "Painel do negócio"} — ZapAgenda`;
+  const key = next.split("/")[0];
+  if (key) panelSegment = key;
+  document.body.dataset.theme = key || "home";
+  document.title = key
+    ? `${isPanel(next) ? segments[key].panelTitle : segments[key].title} — ZapAgenda`
+    : "ZapAgenda — Sua agenda, seu estilo.";
   renderFrame();
-  if (next === "painel") renderDashboard();
+  if (isPanel(next)) renderDashboard();
   else if (next) renderSegment(next);
   else renderHome();
 }
 
 function refreshRoute(animate) {
-  const next = location.hash.slice(2);
-  const target = Object.hasOwn(segments, next) || next === "painel" ? next : "";
+  const target = resolveRoute(location.hash, panelSegment);
+  if (location.hash === "#/painel") history.replaceState(null, "", `#/${target}`);
   if (animate && target === route) return;
   const sequence = ++routeSequence;
   clearTimeout(slideTimer);
@@ -230,7 +267,7 @@ function refreshRoute(animate) {
     return;
   }
   transition.className = "screen-transition";
-  transition.dataset.next = target || "home";
+  transition.dataset.next = target.split("/")[0] || "home";
   void transition.offsetWidth;
   transition.classList.add("playing");
   slideTimer = setTimeout(show, 370);
@@ -318,10 +355,51 @@ function showOffer(id, start) {
     <button class="button button-primary full" data-action="accept">${icon("check", 19)} Simular aceite</button>`);
 }
 
+function showMessages() {
+  const key = panelSegment;
+  const appointments = state[key].appointments
+    .filter(item => item.status === "booked")
+    .sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start);
+  if (!appointments.length) return;
+  activeDialog = { kind: "messages", key };
+  modal("Preparar mensagem", "Escolha um horário. Copie o texto e envie pelo WhatsApp do estabelecimento.", `<div class="message-form" id="message-form">
+    <label>Agendamento<select name="appointment">
+      ${appointments.map(item => `<option value="${safe(item.id)}">${safe(item.name)} · ${formatDay(item.date)} · ${timeLabel(item.start)}</option>`).join("")}
+    </select></label>
+    <label>Tipo de mensagem<select name="kind"><option value="reminder">Lembrete</option><option value="confirmation">Confirmação</option></select></label>
+    <label>Mensagem <textarea name="text" rows="5" readonly></textarea></label>
+    <button class="button button-primary full" data-action="copy-message">Copiar mensagem ${icon("link", 18)}</button>
+    <p class="message-feedback" role="status"></p>
+  </div>`);
+  updateMessage(dialogContent.querySelector("#message-form"));
+}
+
+function updateMessage(form) {
+  const appointment = state[activeDialog.key].appointments.find(item => item.id === form.querySelector('[name="appointment"]').value && item.status === "booked");
+  const kind = form.querySelector('[name="kind"]').value;
+  form.querySelector("textarea").value = appointment ? bookingMessage(kind, appointment, segments[activeDialog.key].studio) : "";
+  form.querySelector(".message-feedback").textContent = appointment ? "" : "Esse agendamento já não está disponível.";
+  form.querySelector('[data-action="copy-message"]').disabled = !appointment;
+}
+
+async function copyMessage() {
+  const message = dialogContent.querySelector("#message-form textarea");
+  const feedback = dialogContent.querySelector(".message-feedback");
+  if (!message?.value || !feedback) return;
+  try {
+    await navigator.clipboard.writeText(message.value);
+    feedback.textContent = "Mensagem copiada. Cole na conversa com o cliente.";
+  } catch {
+    message.focus();
+    message.select();
+    feedback.textContent = "O texto está selecionado. Use Ctrl+C ou a opção Copiar.";
+  }
+}
+
 function redraw(message) {
   saveState();
   if (dialog.open) dialog.close();
-  if (route === "painel") renderDashboard();
+  if (isPanel(route)) renderDashboard();
   showNotice(message);
 }
 
@@ -354,11 +432,8 @@ document.addEventListener("click", event => {
   if (action === "gap") showGapForm();
   if (action === "offer") showOffer(id, Number(start));
   if (action === "accept") acceptOffer();
-  if (action === "panel-segment") {
-    panelSegment = segment;
-    renderDashboard();
-    main.querySelector('[aria-pressed="true"]').focus();
-  }
+  if (action === "messages") showMessages();
+  if (action === "copy-message") void copyMessage();
   if (action === "cancel" || action === "complete") {
     const data = state[panelSegment];
     const appointment = data.appointments.find(item => item.id === id);
@@ -374,16 +449,21 @@ document.addEventListener("click", event => {
   }
   if (action === "reset") {
     activeDialog = { kind: "reset" };
-    modal("Reiniciar simulação?", "As reservas e ofertas de demonstração salvas neste navegador voltarão ao estado inicial.",
+    modal("Reiniciar este painel?", "As reservas e ofertas deste segmento voltarão ao estado inicial da demonstração.",
       '<button class="button button-primary full" data-action="confirm-reset">Reiniciar dados de exemplo</button>');
   }
   if (action === "confirm-reset") {
-    state = sampleData();
+    state[panelSegment] = sampleData()[panelSegment];
     redraw("Simulação reiniciada.");
   }
 });
 
 document.addEventListener("change", event => {
+  const messageForm = event.target.closest("#message-form");
+  if (messageForm) {
+    updateMessage(messageForm);
+    return;
+  }
   const form = event.target.closest("#booking-form");
   if (!form || !["date", "service"].includes(event.target.name)) return;
   form.elements.start.innerHTML = slotOptions(activeDialog.key, form.elements.date.value, form.elements.service.value)
@@ -441,6 +521,7 @@ document.querySelector(".skip-link").addEventListener("click", event => {
 window.addEventListener("storage", event => {
   if (event.key !== storageKey) return;
   state = readState();
-  if (route === "painel" && !dialog.open) renderDashboard();
+  if (isPanel(route) && !dialog.open) renderDashboard();
+  if (activeDialog?.kind === "messages" && dialog.open) updateMessage(dialogContent.querySelector("#message-form"));
 });
 refreshRoute(false);
