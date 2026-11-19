@@ -208,3 +208,18 @@ body[data-theme="estetica"] .form-error { color: #9a3043; }
   .za-client, .za-client * { animation: none !important; transition: none !important; }
   .za-choice:hover { transform: none; }
 }
+
+.account-page { padding-block: clamp(2rem, 8vw, 6rem); }
+.account-card { max-width: 30rem; margin-inline: auto; padding: clamp(1.25rem, 5vw, 2.5rem); display: grid; gap: 1rem; }
+.account-card h1 { font-size: clamp(2.25rem, 7vw, 3.5rem); line-height: 1; }
+.account-card > p { color: var(--muted); line-height: 1.6; }
+.account-card form { display: grid; gap: 1rem; }
+.auth-feedback { color: var(--accent); line-height: 1.5; }
+.cloud-status { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: 1rem; font-size: .8rem; color: var(--muted); }
+.cloud-status p { max-width: 55rem; }
+.cloud-status .text-button { white-space: nowrap; }
+.nav-account { display: flex; justify-self: end; align-items: center; gap: .5rem; }
+@media (max-width: 640px) {
+  .nav-account { grid-column: 2; grid-row: 1; }
+  .nav-account .button { min-height: 34px; padding-inline: .5rem; font-size: .75rem; }
+}
