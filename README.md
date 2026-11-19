@@ -1,14 +1,17 @@
 # ZapAgenda, por Contrabarra
 
-Projeto do Contrabarra para o Startup Challenge UMC. Barbearia, Manicure e Estética têm páginas próprias e painéis separados. As três usam a mesma regra de encaixe de até dois atendimentos em uma vaga.
+Agenda e encaixes para barbearia, manicure e estética. Cada espaço tem sua página, portal do cliente e painel profissional. O Supabase identifica os usuários, guarda os atendimentos e publica as mudanças da agenda.
 
 ## Rodar no VS Code
 
-Use Node.js 22 ou superior. O projeto funciona com HTML, CSS e JavaScript, com fontes e fotografias incluídas e módulos nativos do Node.js.
+Use Node.js 22 ou superior. A preparação do banco está em [Configurar o Supabase](docs/supabase.md).
 
 No Windows, abra a pasta com `package.json` e rode:
 
 ```powershell
+npm.cmd install
+npm.cmd run build
+npm.cmd test
 npm.cmd run dev
 ```
 
@@ -22,16 +25,19 @@ Em macOS e Linux, use `npm` no lugar de `npm.cmd`. A pasta `dist/` contém os ar
 
 ## Demonstrar o produto
 
-1. Abra **Manicure → Painel da manicure**. Se já usou a demo, pode clicar em **Reiniciar este painel** para repor os exemplos desse segmento.
-2. Cancele o atendimento fictício da Clara, às 14h. A lista propõe manutenção em gel e esmaltação na janela de 90 min.
-3. Em **Ver oferta**, simule o aceite de cada encaixe. Conclua ambos. O valor bruto dos encaixes concluídos deve chegar a **R$ 140**.
-4. Em **WhatsApp assistido → Preparar mensagem**, selecione um agendamento marcado e copie a confirmação ou o lembrete.
-5. Entre nas páginas de **Barbearia** e **Estética** e abra os painéis próprios para conferir a separação dos dados.
+1. Entre com uma conta de cliente e reserve um horário futuro.
+2. Em outra sessão, entre como outro cliente e peça um encaixe para o mesmo período.
+3. No painel profissional, selecione o dia e cancele a primeira reserva.
+4. O segundo cliente recebe uma oferta com validade de cinco minutos e pode aceitá-la pelo portal.
+5. Confira a reserva confirmada no profissional e a ocupação do horário nas duas contas.
 
-A demonstração usa estabelecimentos, nomes, depoimentos e valores fictícios. Os dados ficam no navegador. O aceite compartilhado, o acesso por estabelecimento e a automação do WhatsApp são etapas do piloto.
+A aplicação usa estabelecimentos, depoimentos e valores de demonstração. A agenda conectada começa com as reservas gravadas no banco. Os espaços novos de manicure e estética ficam vinculados ao profissional da barbearia.
+
+As mudanças chegam por Supabase Realtime. A aplicação também consulta a agenda a cada 15 segundos quando está visível e ao recuperar a conexão.
 
 ## Documentação
 
+- [Configurar o banco e testar contas](docs/supabase.md)
 - [Criar o repositório, comitar e publicar no Vercel](docs/github.md)
 - [Escopo e validação do piloto](docs/piloto.md)
 - [Notificações e integração com WhatsApp](docs/notificacoes.md)

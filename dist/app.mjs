@@ -1,7 +1,8 @@
 import { icon } from "./assets/icons.mjs";
+import { agendaConnection, connectionError } from "./cloud.mjs";
 import {
   segments, money, dayKey, formatDay, timeLabel, timeValue, isFree,
-  suggestPlan, sampleData, restoreDemo, resolveRoute, bookingMessage, businessHours, availableSlots,
+  suggestPlan, resolveRoute, bookingMessage, businessHours, availableSlots,
 } from "./model.mjs";
 
 const header = document.querySelector("#header");
@@ -12,8 +13,11 @@ const dialogContent = document.querySelector("#dialog-content");
 const transition = document.querySelector("#transition");
 const notice = document.querySelector("#notice");
 const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-const storageKey = "zapagenda:prototype:v1";
-let state = readState();
+const emptyAgenda = () => Object.fromEntries(Object.keys(segments).map(key => [key, { appointments: [], requests: [], gaps: [], gap: null }]));
+let state = emptyAgenda();
+const live = { ready: false, session: null, loadedKey: null, error: "", stop: null, generation: 0, connected: false, pending: null };
+let changingAgenda = false;
+let authMode = "login";
 let route = "";
 let panelSegment = resolveRoute(location.hash).split("/")[0] || "barbearia";
 let routeSequence = 0;
@@ -22,36 +26,11 @@ let noticeTimer;
 let activeDialog;
 let previousFocus;
 
-function readState() {
-  try {
-    return restoreDemo(JSON.parse(localStorage.getItem(storageKey)));
-  } catch {
-    // Private browsing and invalid demo data fall back to the examples.
-  }
-  return sampleData();
-}
-
-
 const isPanel = path => path.endsWith("/painel");
 const isClient = path => path.endsWith("/cliente");
-let browserClientId;
 
 function customerId() {
-  try {
-    browserClientId = localStorage.getItem("zapagenda:demo-customer") || browserClientId || crypto.randomUUID();
-    localStorage.setItem("zapagenda:demo-customer", browserClientId);
-  } catch {
-    browserClientId ||= crypto.randomUUID();
-  }
-  return browserClientId;
-}
-
-function saveState() {
-  try {
-    localStorage.setItem(storageKey, JSON.stringify(state));
-  } catch {
-    // The current tab can still run the demo in memory.
-  }
+  return live.session?.user.id ?? null;
 }
 
 const safe = value => String(value).replace(/[&<>"']/g, character =>
@@ -80,7 +59,8 @@ function renderFrame() {
       ${navLink("", "Início")}
       ${Object.entries(segments).map(([segmentKey, item]) => navLink(segmentKey, item.label)).join("")}
     </nav>
-    ${panelLink}
+    <div class="nav-account">${panelLink}
+    ${live.session ? '<button type="button" class="button tiny-button button-outline" data-cloud-action="signout">Sair</button>' : ""}</div>
   </div>`;
   footer.innerHTML = `<div class="frame footer-shell">${brand()}<p>Startup Challenge UMC · Mogi das Cruzes</p></div>`;
 }
@@ -167,35 +147,7 @@ function firstFutureMinute(date) {
   return now.getHours() * 60 + now.getMinutes() + 1;
 }
 
-function offerReleasedAppointment(key, data, appointment) {
-  const now = Date.now();
-  const services = segments[key].services;
-  const durationFor = request =>
-    services.find(service => service.id === request.serviceId)?.duration ?? 0;
-  const queue = data.requests.filter(item =>
-    item.status === "waiting" && item.clientId && item.date === appointment.date
-  );
-  const pending = queue.filter(item => item.offer?.expires > now);
 
-  for (const request of queue) {
-    const duration = durationFor(request);
-    if (!duration || request.offer?.expires > now) continue;
-
-    const earliest = Math.max(appointment.start, request.start, firstFutureMinute(appointment.date));
-    const latest = Math.min(appointment.end, request.end);
-    for (let start = earliest; start + duration <= latest; start++) {
-      const end = start + duration;
-      const overlapsOffer = pending.some(item =>
-        start < item.offer.start + durationFor(item) && item.offer.start < end
-      );
-      if (overlapsOffer || !isFree(data.appointments, appointment.date, start, end, businessHours[key])) {
-        continue;
-      }
-      request.offer = { gapId: crypto.randomUUID(), start, expires: now + 5 * 60_000 };
-      return;
-    }
-  }
-}
 
 function renderAgendaGap(data, segment) {
   const key = panelSegment;
@@ -245,6 +197,7 @@ function onAgendaClick(event) {
   const staff = isPanel(route);
   if (!date || (!staff && !isClient(route))) return;
   agendaSelected.set(agendaKey(panelSegment, staff), date);
+  if (staff) state[panelSegment].gap = state[panelSegment].gaps.find(gap => gap.date === date) ?? null;
   if (staff) renderDashboard();
   else renderClient(panelSegment);
   document.querySelector('.agenda-week [aria-pressed="true"]')?.focus();
@@ -339,36 +292,34 @@ function renderClientQueue(key) {
 
 function renderPublicGap(key) {
   const data = state[key];
-  const gap = data.gap;
-  if (!gap || gap.date < dayKey(1) || gap.date > dayKey(agendaWeeks * 7)) return "";
-
   const services = segments[key].services.filter(item => item.duration > 0);
   const minimum = Math.min(...services.map(item => item.duration));
-  const ranges = [];
-  let start = gap.start;
-  for (let minute = gap.start; minute <= gap.end; minute++) {
-    if (minute < gap.end && isFree(data.appointments, gap.date, minute, minute + 1, businessHours[key])) continue;
-    if (minute - start >= minimum) ranges.push([start, minute]);
-    start = minute + 1;
+  const displayed = new Set();
+  const cards = [];
+  for (const gap of data.gaps) {
+    if (gap.date < dayKey(0) || gap.date > dayKey(agendaWeeks * 7)) continue;
+    let start = Math.max(gap.start, firstFutureMinute(gap.date));
+    for (let minute = start; minute <= gap.end; minute++) {
+      if (minute < gap.end && isFree(data.appointments, gap.date, minute, minute + 1, businessHours[key])) continue;
+      if (minute - start >= minimum && !displayed.has(`${gap.date}:${start}:${minute}`)) {
+        displayed.add(`${gap.date}:${start}:${minute}`);
+        cards.push({ date: gap.date, start, end: minute });
+      }
+      start = minute + 1;
+    }
   }
-  if (!ranges.length) return "";
-
-  const choices = services.filter(service => ranges.some(([start, end]) => end - start >= service.duration));
-  return `<section class="panel za-client za-spot" data-space="${safe(key)}" aria-label="Encaixe disponível">
-    <div>
-      <h2>Encaixe disponível</h2>
-      <p>${safe(formatDay(gap.date))}</p>
-      <div class="za-ranges">${ranges.map(([start, end]) =>
-        `<strong>${timeLabel(start)}–${timeLabel(end)}</strong>`).join("")}</div>
-    </div>
-    <div class="za-choices">
-      <h3>Serviços que cabem nessa janela</h3>
-      ${choices.map(service => `<button type="button" class="za-choice"
-        data-public-gap="${gap.date}" data-gap-service="${safe(service.id)}">
-        <span><strong>${serviceTitle(service)}</strong><small>${service.duration} min</small></span>
-        <span aria-hidden="true">→</span></button>`).join("")}
-    </div>
-  </section>`;
+  return cards.sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start).slice(0, 3).map(gap =>
+    `<section class="panel za-client za-spot" data-space="${safe(key)}" aria-label="Encaixe disponível">
+      <div><h2>Encaixe disponível</h2><p>${safe(formatDay(gap.date))}</p>
+      <div class="za-ranges"><strong>${timeLabel(gap.start)}–${timeLabel(gap.end)}</strong></div></div>
+      <div class="za-choices"><h3>Serviços que cabem nessa janela</h3>
+        ${services.filter(service => service.duration <= gap.end - gap.start).map(service =>
+          `<button type="button" class="za-choice" data-public-gap="${gap.date}" data-gap-service="${safe(service.id)}"
+            data-gap-start="${gap.start}" data-gap-end="${gap.end}">
+            <span><strong>${serviceTitle(service)}</strong><small>${service.duration} min</small></span><span aria-hidden="true">→</span>
+          </button>`).join("")}
+      </div></section>`
+  ).join("");
 }
 
 function onVisitAction(event) {
@@ -377,8 +328,7 @@ function onVisitAction(event) {
   if (id && isPanel(route)) {
     const item = state[panelSegment].appointments.find(visit => visit.id === id);
     if (canFinishVisit(item)) {
-      item.status = "completed";
-      redraw("Atendimento marcado como realizado.");
+      void changeCloudAgenda(panelSegment, "complete", { id }, "Atendimento marcado como realizado.");
     }
     return;
   }
@@ -386,33 +336,18 @@ function onVisitAction(event) {
   if (date && isClient(route)) {
     agendaSelected.set(agendaKey(panelSegment, false), date);
     renderClient(panelSegment);
-    showBooking(panelSegment, target.closest("[data-public-gap]").dataset.gapService || undefined, date);
+    const selected = target.closest("[data-public-gap]").dataset;
+    showBooking(panelSegment, selected.gapService, date, "", { date, start: Number(selected.gapStart), end: Number(selected.gapEnd) });
   }
 }
 
 document.addEventListener("click", onVisitAction);
 
 function renderClient(key) {
+  if (!canOpenAgenda(key, false)) return;
   const segment = segments[key];
-  const data = state[key];
-  const own = item => item.clientId === customerId();
-  const reservations = data.appointments.filter(item => item.date === agendaDay(key, false)).filter(own).map(item =>
-    '<li class="appointment">' + formatDay(item.date) + ' · ' + timeLabel(item.start) +
-    ' · ' + statuses[item.status] + '</li>').join("");
-  const requests = data.requests.filter(item => own(item) && item.status === "waiting").map(item => {
-    const offer = item.offer;
-    const live = offer?.expires > Date.now();
-    const service = segment.services.find(entry => entry.id === item.serviceId);
-    const description = safe(service?.name ?? "Serviço") + ' · ' + formatDay(item.date) +
-      ' · ' + timeLabel(item.start) + '–' + timeLabel(item.end);
-    const offerButton = live
-      ? '<button class="button tiny-button" data-action="client-offer" data-id="' +
-        safe(item.id) + '">Ver oferta de encaixe</button>'
-      : '<span>Em espera</span>';
-    return '<li class="appointment"><div class="appointment-info">' +
-      description + '</div>' + offerButton + '</li>';
-  }).join("");
   main.innerHTML = `<section class="frame dashboard">
+    ${renderConnectionState()}
     <div class="dashboard-intro"><div>
       <p class="segment-eyebrow">${segment.studio}</p>
       <h1>Área do cliente<span>.</span></h1>
@@ -490,14 +425,12 @@ const statuses = { booked: "Confirmado", canceled: "Cancelado", completed: "Real
 
 function renderAppointment(appointment, segment) {
   const service = segment.services.find(item => item.id === appointment.serviceId);
-  const cancel = appointment.status === "booked" && !appointment.recovered;
-  const complete = appointment.status === "booked" && appointment.recovered;
+  const cancel = appointment.status === "booked";
   return `<li class="appointment">
     <time>${timeLabel(appointment.start)}<small>${formatDay(appointment.date)}</small></time>
     <div class="appointment-info"><strong>${safe(appointment.name)}</strong><span>${service.name} · ${service.duration} min</span></div>
     <span class="status status-${appointment.status}">${statuses[appointment.status]}</span>
     ${cancel ? `<button class="button tiny-button" data-action="cancel" data-id="${appointment.id}" aria-label="Cancelar atendimento de ${safe(appointment.name)}">Cancelar</button>${renderFinishVisit(appointment.id)}` : ""}
-    ${complete ? `${renderFinishVisit(appointment.id)}` : ""}
   </li>`;
 }
 
@@ -505,7 +438,7 @@ function renderGap(data, segment) {
   if (!data.gap) return `<div class="empty-slot">
     <span class="service-symbol">${icon("spark", 25)}</span>
     <h3>Abriu uma vaga?</h3>
-    <p>Cancele um atendimento de exemplo ou informe um horário livre para buscar encaixes.</p>
+    <p>Cancele um atendimento ou informe um horário livre para consultar a fila.</p>
     <button class="button button-primary" data-action="gap">${icon("plus", 17)} Informar horário livre</button>
   </div>`;
   const { gap } = data;
@@ -531,13 +464,15 @@ function renderWaitingList(data, segment) {
   const rows = waiting.map(item => {
     const service = segment.services.find(entry => entry.id === item.serviceId);
     return '<li><strong>' + safe(item.name) + '</strong> · ' + safe(service?.name ?? "Serviço") +
-      ' · ' + formatDay(item.date) + ' · ' + timeLabel(item.start) + '–' + timeLabel(item.end) + '</li>';
+      ' · ' + formatDay(item.date) + ' · ' + timeLabel(item.start) + '–' + timeLabel(item.end) +
+      (item.offer?.expires > Date.now() ? ' · Oferta enviada para ' + timeLabel(item.offer.start) : ' · Aguardando vaga') + '</li>';
   }).join("");
   return '<details class="waiting-agenda"><summary>Lista de espera (' + waiting.length +
     ')</summary><ul>' + (rows || '<li>Nenhum pedido em espera.</li>') + '</ul></details>';
 }
 
 function renderDashboard() {
+  if (!canOpenAgenda(panelSegment, true)) return;
   const segment = segments[panelSegment];
   const data = state[panelSegment];
   const booked = data.appointments.filter(item => item.status === "booked").length;
@@ -546,8 +481,9 @@ function renderDashboard() {
   const waiting = data.requests.filter(item => item.status === "waiting" && item.clientId).length;
   const appointments = data.appointments.filter(item => item.date === agendaDay(panelSegment, true)).sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start);
   main.innerHTML = `<section class="frame dashboard">
+    ${renderConnectionState()}
     <div class="dashboard-intro">
-      <div><p class="intro-tag"><span></span> AMBIENTE DE DEMONSTRAÇÃO</p><h1>${segment.panelTitle}<span>.</span></h1>
+      <div><p class="intro-tag"><span></span> AGENDA DO ESTABELECIMENTO</p><h1>${segment.panelTitle}<span>.</span></h1>
       <p>${segment.studio} · Agenda, lista de espera e encaixes.</p></div>
       <a href="#/${panelSegment}" class="button button-outline">Ver página do espaço ${icon("diagonal", 18)}</a>
     </div>
@@ -573,7 +509,7 @@ function renderDashboard() {
       <div><h2 id="mensagens-titulo">WhatsApp assistido</h2><p>Monte a confirmação ou o lembrete. Você copia e envia para o cliente.</p></div>
       <button class="button button-outline" data-action="messages" ${booked ? "" : "disabled"}>Preparar mensagem ${icon("arrow", 17)}</button>
     </section>
-    <div class="dashboard-foot"><p>Dados fictícios deste segmento, salvos neste navegador.</p></div>
+    <div class="dashboard-foot"><p>Horários em Mogi das Cruzes · Expediente das 08h às 18h · Intervalo das 12h às 13h.</p></div>
   </section>`;
 }
 
@@ -638,14 +574,22 @@ function serviceOptions(segment, serviceId) {
 }
 
 function dateOptions(selected = dayKey(1)) {
-  return Array.from({ length: agendaWeeks * 7 }, (_, index) => dayKey(index + 1))
+  return Array.from({ length: agendaWeeks * 7 + 1 }, (_, index) => dayKey(index))
     .map(date => `<option value="${date}" ${date === selected ? "selected" : ""}>${formatDay(date, { weekday: "long", day: "numeric", month: "long" })}</option>`).join("");
 }
 
 
 function slotOptions(key, date, serviceId) {
   const service = segments[key].services.find(item => item.id === serviceId);
-  return availableSlots(state[key].appointments, date, service.duration, businessHours[key])
+  const matchingWindow = activeDialog?.window?.date === date && activeDialog.key === key ? activeDialog.window : null;
+  const starts = matchingWindow
+    ? Array.from({ length: Math.max(0, matchingWindow.end - matchingWindow.start - service.duration + 1) }, (_, index) => matchingWindow.start + index)
+      .filter(start => (start - matchingWindow.start) % 15 === 0 && isFree(state[key].appointments, date, start, start + service.duration, businessHours[key]))
+    : availableSlots(state[key].appointments, date, service.duration, businessHours[key]);
+  return starts
+    .filter(start => start >= firstFutureMinute(date))
+    .filter(start => !activeDialog?.window || activeDialog.key !== key || activeDialog.window.date !== date ||
+      (start >= activeDialog.window.start && start + service.duration <= activeDialog.window.end))
     .map(start => '<option value="' + start + '">' + timeLabel(start) + "</option>").join("");
 }
 
@@ -660,19 +604,21 @@ function refreshBookingOptions(form, key) {
   const button = form.querySelector('button[type="submit"], [data-action="join-wait"]');
   start.disabled = waiting;
   const waitLink = form.querySelector("[data-wait-link]");
-  if (waitLink) waitLink.hidden = waiting;
+  if (waitLink) waitLink.hidden = false;
   button.type = waiting ? "button" : "submit";
   if (waiting) button.dataset.action = "join-wait";
   else delete button.dataset.action;
   button.innerHTML = waiting ? "Continuar para lista de espera" : 'Confirmar reserva ' + icon("arrow", 19);
 }
 
-function showBooking(key, serviceId = segments[key].services[0].id, date = dayKey(1), name = "") {
+function showBooking(key, serviceId = segments[key].services[0].id, date = dayKey(1), name = "", window = null) {
   if (isPanel(route)) return;
-  activeDialog = { kind: "book", key };
+  if (!live.session || live.loadedKey !== key) { location.hash = `#/${key}/cliente`; return; }
+  if (state[key].isOwner) return showNotice("Use uma conta de cliente para reservar.");
+  activeDialog = { kind: "book", key, window, operationId: crypto.randomUUID() };
   const segment = segments[key];
   const slots = slotOptions(key, date, serviceId);
-  modal("Reserve seu horário", `Demonstração do ${segment.studio}. Use um nome fictício.`, `<form id="booking-form">
+  modal("Reserve seu horário", `${segment.studio} · Escolha o serviço e confirme a disponibilidade.`, `<form id="booking-form">
     <label>Serviço<select name="service" required>${serviceOptions(segment, serviceId)}</select></label>
     <div class="fields-two"><label>Dia<select name="date" required>${dateOptions(date)}</select></label>
     <label>Horário<select name="start" required>${slots || '<option value="">Sem horários</option>'}</select></label></div>
@@ -685,8 +631,8 @@ function showBooking(key, serviceId = segments[key].services[0].id, date = dayKe
 }
 
 function showWaiting(key, serviceId, date, name) {
-  activeDialog = { kind: "wait", key };
-  modal("Quero um encaixe", "Escolha um serviço e indique quando você pode ir. Use um nome fictício.", `<form id="wait-form">
+  activeDialog = { kind: "wait", key, operationId: crypto.randomUUID() };
+  modal("Quero um encaixe", "Informe quando você pode ir. Uma oferta aparecerá aqui quando surgir uma vaga compatível.", `<form id="wait-form">
     <label>Serviço<select name="service" required>${serviceOptions(segments[key], serviceId)}</select></label>
     <label>Dia<select name="date" required>${dateOptions(date)}</select></label>
     <div class="fields-two"><label>Disponível a partir de<input name="start" type="time" value="14:00" required></label>
@@ -698,7 +644,8 @@ function showWaiting(key, serviceId, date, name) {
 }
 
 function showGapForm() {
-  activeDialog = { kind: "gap", key: panelSegment };
+  if (!state[panelSegment].isOwner) return;
+  activeDialog = { kind: "gap", key: panelSegment, operationId: crypto.randomUUID() };
   modal("Informe uma vaga", "A lista de espera será consultada para esse intervalo.", `<form id="gap-form">
     <label>Dia<select name="date" required>${dateOptions(agendaDay(panelSegment, true))}</select></label>
     <div class="fields-two"><label>Início<input name="start" type="time" value="14:00" required></label>
@@ -722,8 +669,7 @@ function showOffer(id, start) {
       !isFree(data.appointments, request.date, start, end, businessHours[key])) {
     return showNotice("O horário mudou. Confira os encaixes sugeridos.");
   }
-  request.offer = { gapId: gap.id, start, expires: Date.now() + 5 * 60_000 };
-  redraw(request.clientId ? "Oferta disponível na área do cliente." : "Oferta gerada para um pedido de exemplo.");
+  void changeCloudAgenda(key, "offer", { id, gapId: gap.id, start }, "Oferta enviada ao cliente.");
 }
 
 function showClientOffer(id) {
@@ -737,7 +683,7 @@ function showClientOffer(id) {
     renderClient(key);
     return showNotice("Esta oferta já venceu ou foi substituída.");
   }
-  activeDialog = { kind: "offer", key, id, ...offer };
+  activeDialog = { kind: "offer", key, requestId: id, ...offer };
   modal("Aceitar encaixe", formatDay(request.date) + " às " + timeLabel(offer.start),
     '<p class="form-error" role="alert"></p>' +
     '<button class="button button-primary full" data-action="accept">Aceitar horário</button>');
@@ -784,31 +730,12 @@ async function copyMessage() {
   }
 }
 
-function redraw(message) {
-  saveState();
-  if (dialog.open) dialog.close();
-  if (isPanel(route)) renderDashboard();
-  if (isClient(route)) renderClient(panelSegment);
-  showNotice(message);
-}
+
 
 function acceptOffer() {
   if (activeDialog?.kind !== "offer") return;
-  const { key, id, start, gapId, expires } = activeDialog;
-  const data = state[key];
-  const request = data.requests.find(item => item.id === id);
-  const service = segments[key].services.find(item => item.id === request?.serviceId);
-  const end = start + (service?.duration ?? 0);
-  if (Date.now() > expires || request?.status !== "waiting" || request?.offer?.gapId !== gapId || request?.offer?.start !== start || request.offer?.expires !== expires ||
-      start < request.start || end > request.end ||
-      !isFree(data.appointments, request.date, start, end, businessHours[key])) {
-    dialogContent.querySelector(".form-error").textContent = "Esta oferta expirou ou o horário foi ocupado.";
-    return;
-  }
-  request.status = "accepted";
-  data.appointments.push({ id: crypto.randomUUID(), name: request.name, serviceId: service.id,
-    date: request.date, start, end, price: service.price, status: "booked", recovered: true, gapId, clientId: request.clientId });
-  redraw("Encaixe reservado.");
+  const { key, requestId, id } = activeDialog;
+  void changeCloudAgenda(key, "accept", { id: requestId, offerId: id }, "Encaixe confirmado na sua agenda.");
 }
 
 document.addEventListener("click", event => {
@@ -836,18 +763,7 @@ document.addEventListener("click", event => {
   if (action === "messages") showMessages();
   if (action === "copy-message") void copyMessage();
   if (action === "cancel" || action === "complete") {
-    const data = state[panelSegment];
-    const appointment = data.appointments.find(item => item.id === id);
-    if (appointment?.status !== "booked") return;
-    if (action === "cancel") {
-      appointment.status = "canceled";
-  offerReleasedAppointment(panelSegment, state[panelSegment], appointment);
-      data.gap = { id: crypto.randomUUID(), date: appointment.date, start: appointment.start, end: appointment.end };
-      redraw("Horário liberado para encaixes.");
-    } else {
-      appointment.status = "completed";
-      redraw("Atendimento concluído.");
-    }
+    void changeCloudAgenda(panelSegment, action, { id }, action === "cancel" ? "Horário liberado e fila consultada." : "Atendimento concluído.");
   }
 
 });
@@ -865,45 +781,18 @@ document.addEventListener("change", event => {
 
 document.addEventListener("submit", event => {
   const form = event.target;
+  if (form.id === "cloud-login-form") { event.preventDefault(); void submitAccount(form); return; }
   if (!form.closest("#dialog") || !activeDialog) return;
   event.preventDefault();
-  const { key, kind } = activeDialog;
+  const { key, kind, operationId } = activeDialog;
+  if (!["book", "wait", "gap"].includes(kind)) return;
   const fields = new FormData(form);
-  const date = fields.get("date");
-  const service = segments[key]?.services.find(item => item.id === fields.get("service"));
-  const name = (fields.get("name") ?? "").trim();
   const start = kind === "book" ? Number(fields.get("start")) : timeValue(fields.get("start"));
-  const end = kind === "book" ? start + service.duration : timeValue(fields.get("end"));
-  const fail = message => { form.querySelector(".form-error").textContent = message; };
-  const data = state[key];
-  if (end <= start) return fail("Escolha um horário final posterior ao inicial.");
-  if (kind !== "gap" && !name) return fail("Informe um nome para continuar.");
-  if (kind === "book") {
-    if (!fields.get("start") || !isFree(data.appointments, date, start, end, businessHours[key])) { refreshBookingOptions(form, key); return fail("A disponibilidade mudou. Confira as opções atualizadas."); }
-    data.appointments.push({ id: crypto.randomUUID(), name, serviceId: service.id, price: service.price, date, start, end, status: "booked", clientId: isClient(route) ? customerId() : null });
-    redraw("Reserva confirmada na demonstração.");
-  }
-  if (kind === "wait") {
-    if (end - start < service.duration) return fail("Esse período é menor que o tempo do serviço escolhido.");
-    
-    const hours = businessHours[key];
-    const request = { id: crypto.randomUUID(), name, serviceId: service.id, date, start, end, status: "waiting", clientId: isClient(route) ? customerId() : null };
-    if (start < hours.start || end > hours.end ||
-        !suggestPlan({ gap: { date, start, end }, requests: [request], appointments: [], services: [service], hours }).length) {
-      return fail("Informe um período comercial que comporte o serviço fora das pausas.");
-    }
-    if (availableSlots(data.appointments, date, service.duration, hours)
-      .some(slot => slot >= start && slot + service.duration <= end)) {
-      return showBooking(key, service.id, date, name);
-    }
-    data.requests.push(request);
-    redraw("Você entrou na lista de espera da demonstração.");
-  }
-  if (kind === "gap") {
-    if (!isFree(data.appointments, date, start, end, businessHours[key])) return fail("Escolha um intervalo livre dentro do expediente e fora das pausas.");
-    data.gap = { id: crypto.randomUUID(), date, start, end };
-    redraw("Sugestões de encaixe atualizadas.");
-  }
+  const payload = { id: operationId, date: fields.get("date"), start,
+    serviceId: fields.get("service"), name: (fields.get("name") ?? "").trim() };
+  if (kind !== "book") payload.end = timeValue(fields.get("end"));
+  const message = { book: "Reserva confirmada.", wait: "Pedido registrado. Acompanhe as ofertas em Meus encaixes.", gap: "Janela publicada. A fila foi consultada automaticamente." };
+  void changeCloudAgenda(key, kind, payload, message[kind]);
 });
 
 dialog.addEventListener("click", event => {
@@ -922,11 +811,218 @@ document.querySelector(".skip-link").addEventListener("click", event => {
   event.preventDefault();
   main.focus();
 });
-window.addEventListener("storage", event => {
-  if (event.key !== storageKey) return;
-  state = readState();
-  if (isPanel(route) && !dialog.open) renderDashboard();
-  if (isClient(route) && !dialog.open) renderClient(panelSegment);
-  if (activeDialog?.kind === "messages" && dialog.open) updateMessage(dialogContent.querySelector("#message-form"));
+
+function renderConnectionState() {
+  return `<div class="cloud-status"><p data-sync-status role="status">${safe(live.error || (live.connected ? "Agenda conectada" : "Atualização automática ativa"))}</p>
+    <button type="button" class="text-button" data-cloud-action="refresh">Atualizar</button></div>`;
+}
+
+function renderAccess(title, text, contents = "") {
+  main.innerHTML = `<section class="frame account-page"><div class="account-card panel">
+    <p class="segment-eyebrow">${segments[panelSegment].studio}</p><h1>${title}</h1>
+    <p>${safe(text)}</p>${contents}</div></section>`;
+}
+
+function renderAccount() {
+  const professional = isPanel(route);
+  const signup = !professional && authMode === "signup";
+  renderAccess(signup ? "Crie sua conta" : professional ? "Área profissional" : "Entre para agendar",
+    professional ? "Acesse com o e-mail do responsável pelo estabelecimento." : "Acompanhe seus horários e ofertas de encaixe em qualquer aparelho.",
+    `<form id="cloud-login-form" data-mode="${signup ? "signup" : "login"}">
+      <label>E-mail<input name="email" type="email" autocomplete="email" required maxlength="254"></label>
+      <label>Senha<input name="password" type="password" autocomplete="${signup ? "new-password" : "current-password"}" minlength="6" required></label>
+      <p class="form-error" role="alert"></p><p class="auth-feedback" role="status"></p>
+      <button type="submit" class="button button-primary full">${signup ? "Criar conta" : "Entrar"} ${icon("arrow", 18)}</button>
+    </form>
+    ${professional ? "" : `<button type="button" class="text-button" data-cloud-action="auth-mode">${signup ? "Já tenho conta" : "Criar minha conta"}</button>`}
+    <a class="text-button" href="#/${panelSegment}">Voltar ao espaço</a>`);
+}
+
+function canOpenAgenda(key, staff) {
+  if (!live.ready) { renderAccess("Abrindo sua agenda", "Carregando sua sessão…"); return false; }
+  if (!live.session) { renderAccount(); return false; }
+  if (live.loadedKey !== key) {
+    if (live.error && live.loadingKey === key) {
+      renderAccess("Agenda indisponível", live.error,
+        '<button type="button" class="button button-primary" data-cloud-action="refresh">Tentar novamente</button>');
+    } else {
+      renderAccess("Abrindo sua agenda", "Consultando os horários do estabelecimento…");
+      void synchronizeAgenda(key);
+    }
+    return false;
+  }
+  const owner = state[key].isOwner;
+  if (staff !== owner) {
+    renderAccess(owner ? "Sua conta é profissional" : "Acesso do profissional",
+      owner ? "Abra o painel para acompanhar os atendimentos deste espaço." : "Esta conta tem acesso à área do cliente.",
+      `<a class="button button-primary" href="#/${key}/${owner ? "painel" : "cliente"}">${owner ? "Abrir meu painel" : "Abrir meus agendamentos"}</a>
+       <button type="button" class="text-button" data-cloud-action="signout">Entrar com outra conta</button>`);
+    return false;
+  }
+  return true;
+}
+
+async function synchronizeAgenda(key) {
+  if (!live.session) return;
+  if (live.pending?.key === key) return live.pending.promise;
+  if (live.loadingKey !== key) {
+    live.generation++;
+    live.stop?.();
+    live.stop = null;
+    live.connected = false;
+    live.loadingKey = key;
+    live.error = "";
+  }
+  const generation = live.generation;
+  const task = (async () => {
+    try {
+      const data = await agendaConnection.snapshot(key);
+      if (generation !== live.generation) return;
+      const fingerprint = JSON.stringify(data);
+      const changed = fingerprint !== live.fingerprint || live.loadedKey !== key || live.error;
+      live.fingerprint = fingerprint;
+      state[key] = data;
+      state[key].gap = data.gaps.find(gap => gap.date === agendaDay(key, true)) ?? data.gaps[0] ?? null;
+      live.loadedKey = key;
+      live.error = "";
+      if (!live.stop) {
+        live.stop = agendaConnection.watch(key, data.spaceId,
+          () => { void synchronizeAgenda(key); }, status => {
+            if (generation !== live.generation) return;
+            live.connected = status === "SUBSCRIBED";
+            const label = document.querySelector("[data-sync-status]");
+            if (label) label.textContent = live.error || (live.connected ? "Agenda conectada" : "Atualização automática ativa");
+            if (live.connected) void synchronizeAgenda(key);
+          });
+      }
+      if (changed && route.startsWith(key + "/")) {
+        if (isPanel(route)) renderDashboard();
+        else if (isClient(route)) renderClient(key);
+      }
+      if (dialog.open && activeDialog?.key === key && activeDialog.kind === "book") {
+        refreshBookingOptions(dialogContent.querySelector("#booking-form"), key);
+      }
+    } catch (error) {
+      if (generation !== live.generation) return;
+      live.error = connectionError(error);
+      if (route.startsWith(key + "/")) {
+        if (isPanel(route)) renderDashboard();
+        else if (isClient(route)) renderClient(key);
+      }
+    } finally {
+      if (live.pending?.promise === task) live.pending = null;
+    }
+  })();
+  live.pending = { key, promise: task };
+  return task;
+}
+
+async function changeCloudAgenda(key, action, payload, message) {
+  if (changingAgenda) return;
+  changingAgenda = true;
+  const context = activeDialog;
+  const buttons = [...dialogContent.querySelectorAll('button[type="submit"], [data-action="accept"]')];
+  buttons.forEach(button => { button.disabled = true; });
+  try {
+    await agendaConnection.command(key, action, payload);
+    if (key === panelSegment) {
+      if (live.pending?.key === key) await live.pending.promise;
+      await synchronizeAgenda(key);
+    }
+    if (dialog.open && context === activeDialog) dialog.close();
+    showNotice(message);
+  } catch (error) {
+    const label = connectionError(error);
+    const field = context === activeDialog && dialog.open ? dialogContent.querySelector(".form-error") : null;
+    if (field) field.textContent = label;
+    else showNotice(label);
+    await synchronizeAgenda(key);
+  } finally {
+    changingAgenda = false;
+    buttons.forEach(button => { button.disabled = false; });
+  }
+}
+
+function receiveSession(session) {
+  const changed = live.session?.user.id !== session?.user.id;
+  live.session = session;
+  live.ready = true;
+  if (changed) {
+    live.generation++;
+    live.stop?.();
+    live.stop = null;
+    live.loadedKey = null;
+    live.loadingKey = null;
+    live.pending = null;
+    live.fingerprint = null;
+    live.connected = false;
+    live.error = "";
+    state = emptyAgenda();
+    if (dialog.open) dialog.close();
+  }
+  paint(resolveRoute(location.hash, panelSegment));
+}
+
+async function submitAccount(form) {
+  const button = form.querySelector('button[type="submit"]');
+  if (button.disabled) return;
+  button.disabled = true;
+  const errorField = form.querySelector(".form-error");
+  errorField.textContent = "";
+  const fields = new FormData(form);
+  try {
+    const signup = form.dataset.mode === "signup";
+    const email = String(fields.get("email")).trim();
+    const password = String(fields.get("password"));
+    const session = signup ? await agendaConnection.signUp(email, password) : await agendaConnection.signIn(email, password);
+    if (session) receiveSession(session);
+    else form.querySelector(".auth-feedback").textContent = "Confira seu e-mail para confirmar o cadastro. Depois, volte e entre na sua conta.";
+  } catch (error) {
+    errorField.textContent = connectionError(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.addEventListener("click", async event => {
+  const button = event.target.closest("[data-cloud-action]");
+  if (!button) return;
+  const action = button.dataset.cloudAction;
+  if (action === "auth-mode") { authMode = authMode === "login" ? "signup" : "login"; renderAccount(); }
+  if (action === "refresh") {
+    live.error = "";
+    if (!live.ready) {
+      try { receiveSession(await agendaConnection.initialize(receiveSession)); }
+      catch (error) { renderAccess("Conexão indisponível", connectionError(error)); }
+    } else await synchronizeAgenda(panelSegment);
+  }
+  if (action === "signout") {
+    button.disabled = true;
+    try { await agendaConnection.signOut(); receiveSession(null); }
+    catch (error) { button.disabled = false; showNotice(connectionError(error)); }
+  }
 });
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && (isPanel(route) || isClient(route))) void synchronizeAgenda(panelSegment);
+});
+window.addEventListener("online", () => { if (live.loadedKey) void synchronizeAgenda(panelSegment); });
+setInterval(() => {
+  if (!document.hidden && live.session && (isPanel(route) || isClient(route))) {
+    for (const button of document.querySelectorAll("[data-visit-finish]")) {
+      const item = state[panelSegment].appointments.find(visit => visit.id === button.dataset.visitFinish);
+      button.disabled = !canFinishVisit(item);
+    }
+    void synchronizeAgenda(panelSegment);
+  }
+}, 15_000);
+
 refreshRoute(false);
+try {
+  receiveSession(await agendaConnection.initialize(receiveSession));
+} catch (error) {
+  live.ready = true;
+  live.error = connectionError(error);
+  if (isPanel(route) || isClient(route)) renderAccess("Conexão indisponível", live.error,
+    '<button type="button" class="button button-primary" data-cloud-action="refresh">Tentar novamente</button>');
+}

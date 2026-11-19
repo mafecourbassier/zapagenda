@@ -65,7 +65,7 @@ Abra um **Pull request** no GitHub, preencha o modelo, vincule a issue com `Clos
 
 1. Entre no [Vercel](https://vercel.com/) com sua conta e clique em **Add New → Project**.
 2. Em **Import Git Repository**, dê acesso ao repositório `zapagenda` e clique em **Import**.
-3. Use a raiz do repositório como **Root Directory**. A configuração `vercel.json` define um site estático, roda `npm test` e publica apenas `dist/`.
+3. Use a raiz do repositório como **Root Directory**. A configuração `vercel.json` instala as dependências com `npm ci`, compila o SDK com `npm run build`, executa `npm test` e publica `dist/`.
 4. Clique em **Deploy**. Abra o endereço `.vercel.app` em uma janela anônima, confira os três segmentos e compartilhe o domínio de **Production** com a equipe.
 
 No plano Hobby, o Vercel tem restrições para repositórios privados de organizações. Se essa for a configuração do grupo, sigam com o Drop para a apresentação e revisem as permissões se decidirem conectar o repositório. [Deploy privado e planos no Vercel](https://vercel.com/docs/git#deploying-private-git-repositories).
