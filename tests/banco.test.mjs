@@ -12,6 +12,7 @@ test('agenda compartilhada valida permissões e o ciclo de encaixe no PostgreSQL
     create schema extensions;
     create role anon nologin;
     create role authenticated nologin;
+    create role service_role nologin bypassrls;
     create table auth.users (id uuid primary key);
     create function auth.uid() returns uuid language sql stable as $$
       select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
@@ -32,6 +33,8 @@ test('agenda compartilhada valida permissões e o ciclo de encaixe no PostgreSQL
     await db.exec(migration('202611190002_agenda_leitura.sql'));
     await db.exec(migration('202611190003_agenda_conectada.sql'));
   }
+  await db.exec(migration('202611190004_whatsapp.sql'));
+  await db.exec(migration('202611190004_whatsapp.sql'));
   const date = (await db.query("select ((now() at time zone 'America/Sao_Paulo')::date + 1)::text as day")).rows[0].day;
   async function as(user) {
     await db.exec('reset role');
@@ -129,4 +132,103 @@ test('agenda compartilhada valida permissões e o ciclo de encaixe no PostgreSQL
     await as(null);
     await assert.rejects(db.exec("select public.za_snapshot('barbearia')"), error => error.code === '42501');
   });
+  async function preference(user, enabled, phone = '+55 (11) 99999-9999') {
+    await as(user);
+    return db.query('select public.za_set_whatsapp_preferences($1, $2, $3)', ['barbearia', phone, enabled]);
+  }
+  async function notificationState(user) {
+    await as(user);
+    return (await db.query("select public.za_whatsapp_state('barbearia') as data")).rows[0].data;
+  }
+  async function service(query, values = []) {
+    await db.exec('reset role; set role service_role;');
+    return db.query(query, values);
+  }
+  const noticeBooking = { ...reservation, id: crypto.randomUUID(), start: 630 };
+  await t.test('WhatsApp exige telefone válido, autorização própria e isola preferências', async () => {
+    await assert.rejects(preference(clientA, true, '119'), /código do país/);
+    await assert.rejects(preference(owner, true), /conta do cliente/);
+    await preference(clientA, true);
+    assert.equal((await notificationState(clientA)).preference.phone, '5511999999999');
+    assert.equal((await notificationState(clientB)).preference, null);
+    assert.equal((await notificationState(owner)).preference, null);
+    await as(clientA);
+    await assert.rejects(db.exec('select public.za_claim_whatsapp_jobs(10)'), error => error.code === '42501');
+  });
+  await t.test('reserva cria uma confirmação e um lembrete para três horas antes, sem duplicar', async () => {
+    await command(clientA, 'book', noticeBooking);
+    await command(clientA, 'book', noticeBooking);
+    await db.exec('reset role');
+    const jobs = (await db.query('select o.kind, o.status, extract(epoch from (b.starts_at - o.due_at)) as delta from public.za_whatsapp_outbox o join public.za_bookings b on b.id = o.booking_id where b.id = $1', [noticeBooking.id])).rows;
+    assert.equal(jobs.length, 2);
+    assert.equal(jobs.find(row => row.kind === 'reminder').delta, '10800.000000');
+    assert.ok(jobs.every(row => row.status === 'pending'));
+    assert.equal((await notificationState(clientB)).messages.length, 0);
+  });
+  await t.test('cancelamento invalida lembrete e confirmação pendentes e cria um único aviso', async () => {
+    await command(owner, 'cancel', { id: noticeBooking.id });
+    await command(owner, 'cancel', { id: noticeBooking.id });
+    const messages = (await notificationState(clientA)).messages;
+    assert.equal(messages.length, 3);
+    assert.equal(messages.filter(row => row.status === 'canceled').length, 2);
+    assert.equal(messages.filter(row => row.kind === 'cancellation').length, 1);
+  });
+  let leased;
+  await t.test('automação inativa mantém fila e dois workers não retiram a mesma mensagem', async () => {
+    assert.equal((await service('select * from public.za_claim_whatsapp_jobs(10)')).rows.length, 0);
+    await db.exec("reset role; update public.za_spaces set whatsapp_enabled = true where slug = 'barbearia';");
+    const jobs = (await service('select * from public.za_claim_whatsapp_jobs(10)')).rows;
+    assert.equal(jobs.length, 1);
+    leased = jobs[0];
+    assert.equal((await service('select * from public.za_claim_whatsapp_jobs(10)')).rows.length, 0);
+    const prepared = (await service('select public.za_prepare_whatsapp_job($1, $2) as job', [leased.id, leased.lease_id])).rows[0].job;
+    assert.equal(prepared.id, leased.id);
+  });
+  await t.test('webhook adiantado e repetido é reconciliado; leitura nunca volta para enviado', async () => {
+    const time = new Date().toISOString();
+    await service("select public.za_record_whatsapp_status('wamid-test', 'delivered', $1, null)", [time]);
+    await service("select public.za_finish_whatsapp_job($1,$2,'submitted','wamid-test',null)", [leased.id, leased.lease_id]);
+    assert.equal((await notificationState(clientA)).messages.find(item => item.id === leased.id).status, 'delivered');
+    await service("select public.za_record_whatsapp_status('wamid-test', 'read', $1, null)", [time]);
+    await service("select public.za_record_whatsapp_status('wamid-test', 'read', $1, null)", [time]);
+    await service("select public.za_record_whatsapp_status('wamid-test', 'sent', $1, null)", [time]);
+    assert.equal((await notificationState(clientA)).messages.find(item => item.id === leased.id).status, 'read');
+  });
+  await t.test('revogar o recebimento cancela os envios pendentes', async () => {
+    await command(clientA, 'book', { ...reservation, id: crypto.randomUUID(), start: 660 });
+    await preference(clientA, false, '');
+    assert.ok((await notificationState(clientA)).messages.every(item => item.status !== 'pending'));
+  });
+  await t.test('worker interrompido sinaliza resultado incerto e não repete o envio', async () => {
+    await preference(clientA, true);
+    await command(clientA, 'book', { ...reservation, id: crypto.randomUUID(), start: 900 });
+    const job = (await service('select * from public.za_claim_whatsapp_jobs(10)')).rows[0];
+    assert.ok(job);
+    await db.exec('reset role');
+    await db.query("update public.za_whatsapp_outbox set lease_expires = now() - interval '1 second' where id = $1", [job.id]);
+    assert.equal((await service('select * from public.za_claim_whatsapp_jobs(10)')).rows.length, 0);
+    assert.equal((await notificationState(clientA)).messages.find(item => item.id === job.id).status, 'uncertain');
+  });
+  await t.test('oferta gera notificação individual e aceitar invalida o aviso pendente da oferta', async () => {
+    await preference(clientB, true, '+5511988888888');
+    const request = { ...wait, id: crypto.randomUUID(), serviceId: 'barba', start: 960, end: 1020 };
+    await command(clientB, 'wait', request);
+    await command(owner, 'gap', { id: crypto.randomUUID(), date, start: 960, end: 1020 });
+    const offer = (await snapshot(clientB)).requests.find(item => item.id === request.id).offer;
+    assert.ok(offer);
+    const message = (await notificationState(clientB)).messages.find(item => item.kind === 'offer');
+    assert.equal(message.status, 'pending');
+    await command(clientB, 'accept', { id: request.id, offerId: offer.id });
+    assert.equal((await notificationState(clientB)).messages.find(item => item.id === message.id).status, 'canceled');
+  });
+  await t.test('conteúdo de notificação de estética preserva os detalhes do procedimento no painel', async () => {
+    await as(clientA);
+    await db.query("select public.za_set_whatsapp_preferences('estetica', '+5511999999999', true)");
+    const bookingId = await command(clientA, 'book', { ...reservation, id: crypto.randomUUID(), start: 780, serviceId: 'acne' }, 'estetica');
+    await db.exec('reset role');
+    const payload = (await db.query('select payload from public.za_whatsapp_outbox where booking_id = $1 limit 1', [bookingId])).rows[0].payload;
+    assert.equal(payload.studio, 'Casa Orla');
+    assert.doesNotMatch(JSON.stringify(payload), /acne|botox|serviceId/);
+  });
+
 });

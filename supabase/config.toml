@@ -1,0 +1,7 @@
+project_id = "zapagenda"
+
+[functions.whatsapp-webhook]
+verify_jwt = false
+
+[functions.whatsapp-worker]
+verify_jwt = false
