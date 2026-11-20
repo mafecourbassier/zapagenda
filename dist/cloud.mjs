@@ -30,11 +30,24 @@ export const agendaConnection = {
     if (error) throw error;
   },
   async snapshot(slug) {
-    const { data, error } = await client.rpc('za_snapshot', { p_slug: slug });
+    const [{ data, error }, notifications] = await Promise.all([
+      client.rpc('za_snapshot', { p_slug: slug }),
+      client.rpc('za_whatsapp_state', { p_slug: slug }),
+    ]);
     if (error) throw error;
+    data.notifications = notifications.error ? null : notifications.data;
     return data;
   },
+  async setWhatsAppPreferences(slug, phone, enabled) {
+    const { error } = await client.rpc('za_set_whatsapp_preferences', {
+      p_slug: slug, p_phone: phone, p_enabled: enabled,
+    });
+    if (error) throw error;
+  },
   async command(slug, action, payload) {
+    if (action === 'whatsapp-preferences') {
+      return this.setWhatsAppPreferences(slug, payload.phone, payload.enabled);
+    }
     const { data, error } = await client.rpc('za_command', {
       p_slug: slug, p_action: action, p_payload: payload,
     });

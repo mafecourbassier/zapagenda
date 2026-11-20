@@ -7,9 +7,11 @@
 | Aviso na tela | A aplicação confirma reserva, entrada na fila, aceite e conclusão no navegador. |
 | WhatsApp assistido | Em cada painel, selecione um agendamento e gere uma confirmação ou um lembrete. O botão copia o texto. O prestador escolhe a conversa e envia. |
 | Oferta de encaixe | O banco publica uma proposta individual no portal do cliente. O aceite revalida horário e prazo e grava a reserva em uma transação. |
-| Lembretes automáticos e entrega | Planejados para a integração com o provedor. |
+| Lembretes automáticos e entrega | Fila persistente e funções de envio preparadas. A ativação depende da conta Meta, modelos e secrets descritos no guia de WhatsApp. |
 
-A mensagem de estética usa nome, data e hora. A descrição do atendimento fica no painel.
+A mensagem de estética usa nome, data, hora e link do portal. A descrição do atendimento fica no painel.
+
+A configuração, o teste do número e os comandos de publicação estão em [Ativar o WhatsApp](whatsapp.md). Os testes desta entrega usam o banco isolado e respostas simuladas da Meta.
 
 ## Sequência para um piloto real
 

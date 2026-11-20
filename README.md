@@ -37,6 +37,8 @@ As mudanças chegam por Supabase Realtime. A aplicação também consulta a agen
 
 ## Documentação
 
+- [Ativar as notificações de WhatsApp](docs/whatsapp.md)
+- [Validação da versão publicada em 19/11/2026](docs/validacao-2026-11-19.md)
 - [Configurar o banco e testar contas](docs/supabase.md)
 - [Criar o repositório, comitar e publicar no Vercel](docs/github.md)
 - [Escopo e validação do piloto](docs/piloto.md)

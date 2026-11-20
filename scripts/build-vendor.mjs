@@ -21,6 +21,7 @@ for (const root of packageRoots) {
   const metadata = JSON.parse(await readFile(`${root}/package.json`, 'utf8'));
   const licenseFile = (await readdir(root)).find(name => /^licen[sc]e(?:\.|$)/i.test(name));
   if (!licenseFile) throw new Error(`Licença não encontrada para ${metadata.name}.`);
-  notices.push(`${metadata.name} ${metadata.version}\n\n${await readFile(`${root}/${licenseFile}`, 'utf8')}`);
+  const license = (await readFile(`${root}/${licenseFile}`, 'utf8')).replace(/\r\n/g, '\n');
+  notices.push(`${metadata.name} ${metadata.version}\n\n${license}`);
 }
 await writeFile('dist/assets/supabase-LICENSES.txt', notices.join('\n\n'), 'utf8');

@@ -343,6 +343,47 @@ function onVisitAction(event) {
 
 document.addEventListener("click", onVisitAction);
 
+function renderWhatsAppPreferences(key) {
+  const info = state[key].notifications;
+  if (!info) return "";
+  const enabled = info.preference?.enabled;
+  const status = enabled ? (info.deliveryEnabled ? "Avisos autorizados" : "Telefone autorizado · automação em preparação") : "Avisos desativados";
+  return `<section class="panel whatsapp-preferences">
+    <div><h2>Seu WhatsApp</h2><p>${status}</p>
+      ${info.preference?.phone ? `<small>+${safe(info.preference.phone)}</small>` : ""}</div>
+    <button type="button" class="button button-outline" data-action="whatsapp-preferences">${info.preference ? "Editar preferência" : "Configurar avisos"}</button>
+  </section>`;
+}
+
+function showWhatsAppPreferences(key) {
+  const info = state[key].notifications;
+  if (!info || state[key].isOwner) return;
+  activeDialog = { kind: "whatsapp", key };
+  modal("Avisos no WhatsApp", "Escolha como receber atualizações deste estabelecimento.", `<form id="whatsapp-preferences-form">
+    <label>WhatsApp com código do país e DDD<input type="tel" name="phone" autocomplete="tel"
+      value="${safe(info.preference?.phone ? '+' + info.preference.phone : '')}" placeholder="+55 11 99999-9999" maxlength="25"></label>
+    <label class="consent-choice"><input type="checkbox" name="enabled" ${info.preference?.enabled ? "checked" : ""}>
+      <span>Autorizo receber confirmações, lembretes, cancelamentos e ofertas dos encaixes que pedi no WhatsApp.</span></label>
+    <p>Você pode desativar esses avisos aqui a qualquer momento.</p>
+    ${info.deliveryEnabled ? "" : "<p>A automação deste espaço está em preparação. Sua preferência fica registrada para os próximos agendamentos.</p>"}
+    <p class="form-error" role="alert"></p><button class="button button-primary full" type="submit">Salvar preferência</button>
+  </form>`);
+}
+
+function renderWhatsAppDeliveries(key) {
+  const info = state[key].notifications;
+  if (!info) return "";
+  const kinds = { confirmation: "Confirmação", reminder: "Lembrete", cancellation: "Cancelamento", offer: "Oferta de encaixe" };
+  const labels = { pending: "Na fila", sending: "Processando", submitted: "Recebida pela Meta", sent: "Enviada",
+    delivered: "Entregue", read: "Lida", failed: "Falhou", canceled: "Cancelada", uncertain: "Revisar envio" };
+  const rows = info.messages.map(item => `<li><div><strong>${safe(kinds[item.kind])} · ${safe(item.name)}</strong>
+    <small>${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(item.dueAt))}</small></div>
+    <span>${safe(labels[item.status])}${item.errorCode ? ' · ' + safe(item.errorCode) : ''}</span></li>`).join("");
+  return `<details class="panel whatsapp-deliveries"><summary>Notificações automáticas · ${info.deliveryEnabled ? "Ativadas" : "Em preparação"}</summary>
+    ${rows ? `<ul>${rows}</ul>` : "<p>As notificações dos clientes que autorizarem o recebimento aparecerão aqui.</p>"}
+  </details>`;
+}
+
 function renderClient(key) {
   if (!canOpenAgenda(key, false)) return;
   const segment = segments[key];
@@ -359,6 +400,7 @@ ${renderAgendaWeek(key, false)}
       ${renderClientVisits(key)}
 ${renderClientQueue(key)}
     </div>
+    ${renderWhatsAppPreferences(key)}
   </section>`;
 }
 
@@ -509,6 +551,7 @@ function renderDashboard() {
       <div><h2 id="mensagens-titulo">WhatsApp assistido</h2><p>Monte a confirmação ou o lembrete. Você copia e envia para o cliente.</p></div>
       <button class="button button-outline" data-action="messages" ${booked ? "" : "disabled"}>Preparar mensagem ${icon("arrow", 17)}</button>
     </section>
+    ${renderWhatsAppDeliveries(panelSegment)}
     <div class="dashboard-foot"><p>Horários em Mogi das Cruzes · Expediente das 08h às 18h · Intervalo das 12h às 13h.</p></div>
   </section>`;
 }
@@ -761,6 +804,7 @@ document.addEventListener("click", event => {
   if (action === "client-offer") showClientOffer(id);
   if (action === "accept" && isClient(route)) acceptOffer();
   if (action === "messages") showMessages();
+  if (action === "whatsapp-preferences" && isClient(route)) showWhatsAppPreferences(panelSegment);
   if (action === "copy-message") void copyMessage();
   if (action === "cancel" || action === "complete") {
     void changeCloudAgenda(panelSegment, action, { id }, action === "cancel" ? "Horário liberado e fila consultada." : "Atendimento concluído.");
@@ -785,6 +829,11 @@ document.addEventListener("submit", event => {
   if (!form.closest("#dialog") || !activeDialog) return;
   event.preventDefault();
   const { key, kind, operationId } = activeDialog;
+  if (kind === "whatsapp") {
+    const fields = new FormData(form);
+    void changeCloudAgenda(key, "whatsapp-preferences", { phone: fields.get("phone"), enabled: fields.get("enabled") === "on" }, "Preferência de WhatsApp salva.");
+    return;
+  }
   if (!["book", "wait", "gap"].includes(kind)) return;
   const fields = new FormData(form);
   const start = kind === "book" ? Number(fields.get("start")) : timeValue(fields.get("start"));

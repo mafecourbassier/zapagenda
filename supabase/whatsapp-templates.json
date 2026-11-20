@@ -1,0 +1,90 @@
+[
+  {
+    "name": "zapagenda_confirmacao",
+    "language": "pt_BR",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Olá, {{1}}! Seu horário em {{2}} foi confirmado para {{3}}, às {{4}}. Acompanhe seu agendamento no portal: {{5}}.",
+        "example": {
+          "body_text": [
+            [
+              "Alex",
+              "Clube do Corte",
+              "25/11/2026",
+              "14:00",
+              "https://example.com/#/barbearia/cliente"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "zapagenda_lembrete",
+    "language": "pt_BR",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Olá, {{1}}! Passando para lembrar do seu atendimento em {{2}} no dia {{3}}, às {{4}}. Confira os detalhes no portal: {{5}}.",
+        "example": {
+          "body_text": [
+            [
+              "Alex",
+              "Clube do Corte",
+              "25/11/2026",
+              "14:00",
+              "https://example.com/#/barbearia/cliente"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "zapagenda_cancelamento",
+    "language": "pt_BR",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Olá, {{1}}! Seu atendimento em {{2}}, marcado para {{3}} às {{4}}, foi cancelado. Consulte sua agenda no portal: {{5}}.",
+        "example": {
+          "body_text": [
+            [
+              "Alex",
+              "Clube do Corte",
+              "25/11/2026",
+              "14:00",
+              "https://example.com/#/barbearia/cliente"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "zapagenda_encaixe",
+    "language": "pt_BR",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Olá, {{1}}! Surgiu um horário para o encaixe que você pediu em {{2}}: {{3}}, às {{4}}. Confira a disponibilidade e o prazo para aceitar no portal: {{5}}.",
+        "example": {
+          "body_text": [
+            [
+              "Alex",
+              "Clube do Corte",
+              "25/11/2026",
+              "14:00",
+              "https://example.com/#/barbearia/cliente"
+            ]
+          ]
+        }
+      }
+    ]
+  }
+]
