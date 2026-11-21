@@ -1,5 +1,7 @@
 # Ativar o WhatsApp do piloto
 
+Para a demonstração com a 360dialog, após validar o recebimento pelo sandbox, siga [Teste automatizado com a 360dialog](whatsapp-sandbox.md). O restante deste documento descreve a integração Meta original.
+
 ## Preparação feita no código
 
 Esta entrega usa a WhatsApp Business Platform da Meta e Edge Functions do Supabase. O envio começa com uma conta e um número de teste controlados pelo time. As credenciais ficam nos secrets das funções. A configuração pública em `dist/cloud-config.mjs` continua identificando o projeto Supabase do site.

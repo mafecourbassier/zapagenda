@@ -35,6 +35,10 @@ test('agenda compartilhada valida permissões e o ciclo de encaixe no PostgreSQL
   }
   await db.exec(migration('202611190004_whatsapp.sql'));
   await db.exec(migration('202611190004_whatsapp.sql'));
+  await db.exec(migration('202611210005_whatsapp_sandbox.sql'));
+  await db.exec(migration('202611210005_whatsapp_sandbox.sql'));
+  await db.exec(migration('202611210006_agenda_historico.sql'));
+  await db.exec(migration('202611210006_agenda_historico.sql'));
   const date = (await db.query("select ((now() at time zone 'America/Sao_Paulo')::date + 1)::text as day")).rows[0].day;
   async function as(user) {
     await db.exec('reset role');
@@ -229,6 +233,45 @@ test('agenda compartilhada valida permissões e o ciclo de encaixe no PostgreSQL
     const payload = (await db.query('select payload from public.za_whatsapp_outbox where booking_id = $1 limit 1', [bookingId])).rows[0].payload;
     assert.equal(payload.studio, 'Casa Orla');
     assert.doesNotMatch(JSON.stringify(payload), /acne|botox|serviceId/);
+  });
+
+  await t.test('sandbox só retira avisos novos do telefone de teste e a cota persiste entre sessões', async () => {
+    await as(clientA);
+    await assert.rejects(db.query('select * from public.za_claim_whatsapp_sandbox_jobs($1,now(),$2)',
+      ['5511999999999', 'a'.repeat(64)]), error => error.code === '42501');
+    await assert.rejects(db.exec('select * from public.za_whatsapp_sandbox_usage'), error => error.code === '42501');
+    await db.exec('reset role');
+    const cutoff = (await db.query('select now() as cutoff')).rows[0].cutoff.toISOString();
+    // Cancelamento legítimo enfileira um aviso imediato; duplicatas abaixo são apenas fixtures da cota.
+    const original = (await db.query("select * from public.za_whatsapp_outbox where kind='cancellation' limit 1")).rows[0];
+    const seed = async (dedupe, phone, created) => (await db.query(`insert into public.za_whatsapp_outbox
+      (space_id,client_id,kind,dedupe_key,phone,payload,due_at,expires_at,created_at)
+      values($1,$2,'cancellation',$3,$4,$5,now(),now()+interval '1 hour',$6) returning id`,
+      [original.space_id, original.client_id, dedupe, phone, original.payload, created])).rows[0].id;
+    const old = await seed('sandbox-old', original.phone, '2020-01-01T00:00:00Z');
+    const other = await seed('sandbox-other', '5511888888888', new Date().toISOString());
+    for (let i = 0; i < 21; i++) await seed(`sandbox-new-${i}`, original.phone, new Date().toISOString());
+    const claim = async () => (await service('select * from public.za_claim_whatsapp_sandbox_jobs($1,$2,$3)',
+      [original.phone, cutoff, 'a'.repeat(64)])).rows;
+    const ids = new Set();
+    for (let i = 0; i < 20; i++) {
+      const rows = await claim();
+      assert.equal(rows.length, 1);
+      assert.ok(!ids.has(rows[0].id));
+      ids.add(rows[0].id);
+      await service("select public.za_finish_whatsapp_job($1,$2,'submitted',$3,null)",
+        [rows[0].id, rows[0].lease_id, `d360:quota-${i}`]);
+    }
+    assert.equal((await claim()).length, 0);
+    await db.exec('reset role');
+    assert.equal((await db.query('select attempts from public.za_whatsapp_sandbox_usage where key_hash=$1', ['a'.repeat(64)])).rows[0].attempts, 20);
+    const untouched = (await db.query('select status from public.za_whatsapp_outbox where id in ($1,$2)', [old, other])).rows;
+    assert.ok(untouched.every(row => row.status === 'pending'));
+    await service("select public.za_record_whatsapp_status('d360:quota-0','delivered',now(),null)");
+    await service("select public.za_record_whatsapp_status('d360:quota-0','read',now(),null)");
+    await service("select public.za_record_whatsapp_status('d360:quota-0','sent',now(),null)");
+    await db.exec('reset role');
+    assert.equal((await db.query("select status from public.za_whatsapp_outbox where provider_id='d360:quota-0'")).rows[0].status, 'read');
   });
 
 });

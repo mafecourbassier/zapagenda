@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.whatsapp-worker]
 verify_jwt = false
+
+[functions.whatsapp-sandbox-webhook]
+verify_jwt = false

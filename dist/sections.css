@@ -94,13 +94,7 @@ body:is([data-theme="manicure"],[data-theme="estetica"]) .status-completed { col
 body:is([data-theme="manicure"],[data-theme="estetica"]) .confirm-button,
 body:is([data-theme="manicure"],[data-theme="estetica"]) .accepted-summary { color: #245139; }
 body[data-theme="estetica"] .form-error { color: #9a3043; }
-.messages-panel { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 13px; padding: 15px; margin-top: 14px; background: var(--surface); border: 1px solid var(--outline); border-radius: 15px; }
-.messages-panel h2 { font-size: 17px; letter-spacing: -.03em; }
-.messages-panel p { color: var(--muted); font-size: 13px; line-height: 1.35; margin-top: 3px; }
 .button:disabled { opacity: .6; cursor: default; transform: none; }
-.message-form { display: grid; gap: 11px; }
-.message-form textarea { width: 100%; padding: 10px; color: var(--text); background: var(--surface-up); border: 1px solid var(--outline); border-radius: 8px; font: inherit; resize: vertical; }
-.message-feedback { min-height: 16px; color: var(--muted); font-size: 12px; }
 .screen-transition[data-next="estetica"] > div:first-child { background: #7b8f6b; }
 .screen-transition[data-next="estetica"] > div:nth-child(2) { background: #a5b29a; }
 .screen-transition[data-next="estetica"] > div:nth-child(3) { background: #dfe7d5; }
@@ -139,8 +133,6 @@ body[data-theme="estetica"] .form-error { color: #9a3043; }
   .feedback-card blockquote { font-size: 15px; }
   .visit-section { margin-block: 28px 36px; padding: 16px; }
   .visit-actions .button { padding-inline: 10px; font-size: 12px; }
-  .messages-panel { grid-template-columns: auto 1fr; }
-  .messages-panel > .button { grid-column: 1 / -1; }
   .dashboard-intro { margin-bottom: 16px; }
 }
 
@@ -233,3 +225,12 @@ body[data-theme="estetica"] .form-error { color: #9a3043; }
   .nav-account { grid-column: 2; grid-row: 1; }
   .nav-account .button { min-height: 34px; padding-inline: .5rem; font-size: .75rem; }
 }
+
+.history-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; margin-top: 20px; padding: 18px 0; border-top: 1px solid var(--outline); }
+.history-tools strong { font-size: 14px; }
+.history-tools p, .gap-published, .agenda-empty { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.history-tools p { margin-top: 4px; }
+.history-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#history-form p { margin-bottom: 15px; line-height: 1.55; }
+.gap-published { padding: 10px 12px; border: 1px solid var(--outline); border-radius: 8px; }
+.agenda-empty { padding: 18px; }

@@ -48,6 +48,13 @@ export const agendaConnection = {
     if (action === 'whatsapp-preferences') {
       return this.setWhatsAppPreferences(slug, payload.phone, payload.enabled);
     }
+    if (action === 'history') {
+      const { data, error } = await client.rpc('za_manage_history', {
+        p_slug: slug, p_restore: payload.restore,
+      });
+      if (error) throw error;
+      return data;
+    }
     const { data, error } = await client.rpc('za_command', {
       p_slug: slug, p_action: action, p_payload: payload,
     });

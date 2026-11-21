@@ -31,6 +31,87 @@ function databaseRpc(env, fetcher) {
   };
 }
 
+function sandboxConfiguration(env) {
+  const phone = env('D360_SANDBOX_PHONE');
+  const key = env('D360_API_KEY');
+  const started = env('D360_SANDBOX_STARTED_AT');
+  const instant = Date.parse(started ?? '');
+  const token = env('D360_WEBHOOK_TOKEN');
+  const recipient = env('D360_SANDBOX_BSUID') || null;
+  if (!/^\d{10,15}$/.test(phone ?? '') || !key || !/^[0-9a-f]{64}$/i.test(token ?? '') ||
+      !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(started ?? '') || !Number.isFinite(instant) ||
+      (recipient && !/^[\w.:-]{3,200}$/.test(recipient))) throw new Error('sandbox_configuration');
+  return { phone, key, started: new Date(instant).toISOString(), instant, token, recipient };
+}
+
+export function sandboxMessage(job, env) {
+  const config = sandboxConfiguration(env);
+  if (job.phone !== config.phone) throw new Error('sandbox_recipient');
+  const site = new URL(env('PUBLIC_APP_URL'));
+  if (site.protocol !== 'https:') throw new Error('site_configuration');
+  site.search = '';
+  site.hash = `/${job.payload.slug}/cliente`;
+  const { name, studio, date, time } = job.payload;
+  const messages = {
+    confirmation: `Olá, ${name}! Seu horário em ${studio} está confirmado para ${date}, às ${time}.`,
+    reminder: `Olá, ${name}! Lembrete: seu atendimento em ${studio} é em ${date}, às ${time}.`,
+    cancellation: `Olá, ${name}! Seu horário em ${studio} de ${date}, às ${time}, foi cancelado.`,
+    offer: `Olá, ${name}! Surgiu um encaixe em ${studio} para ${date}, às ${time}. Confira a validade e aceite pelo portal.`,
+  };
+  if (!messages[job.kind]) throw new Error('sandbox_kind');
+  return {
+    messaging_product: 'whatsapp', recipient_type: 'individual',
+    ...(config.recipient ? { recipient: config.recipient } : { to: config.phone }),
+    type: 'text', text: { body: `${messages[job.kind]}\n${site.href}\n[Ambiente de testes ZapAgenda]` },
+  };
+}
+
+// Endpoint exclusivo para o sandbox. Não enfraquece a assinatura do webhook Meta.
+export function createSandboxWebhook({ env, fetcher = fetch, rpc = null }) {
+  return async request => {
+    if (request.method !== 'POST') return response(405, { error: 'method_not_allowed' });
+    let config;
+    try { config = sandboxConfiguration(env); }
+    catch { return response(503, { error: 'sandbox_configuration_required' }); }
+    const expected = `Basic ${btoa(`zapagenda:${config.token}`)}`;
+    if (!await sameSecret(request.headers.get('Authorization'), expected)) return response(401, { error: 'unauthorized' });
+    if (Number(request.headers.get('Content-Length')) > 65536) return response(413, { error: 'payload_too_large' });
+    const raw = await request.text();
+    if (encoder.encode(raw).length > 65536) return response(413, { error: 'payload_too_large' });
+    let body;
+    try { body = JSON.parse(raw); }
+    catch { return response(400, { error: 'invalid_json' }); }
+    if (!body || typeof body !== 'object') return response(400, { error: 'invalid_json' });
+    const values = [];
+    if (Array.isArray(body.statuses)) values.push(body);
+    for (const entry of Array.isArray(body.entry) ? body.entry : []) {
+      for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
+        if (change?.field === 'messages' && change.value) values.push(change.value);
+      }
+    }
+    try {
+      const call = rpc ?? databaseRpc(env, fetcher);
+      let processed = 0;
+      for (const value of values) {
+        for (const status of Array.isArray(value.statuses) ? value.statuses : []) {
+          const matches = config.recipient ? status?.recipient_user_id === config.recipient : status?.recipient_id === config.phone;
+          const milliseconds = Number(status?.timestamp) * 1000;
+          if (!matches || typeof status?.id !== 'string' || !status.id || status.id.length > 512 ||
+              !['sent', 'delivered', 'read', 'failed'].includes(status.status) ||
+              !Number.isFinite(milliseconds) || Number.isNaN(new Date(milliseconds).getTime())) continue;
+          await call('za_record_whatsapp_status', {
+            p_provider_id: `d360:${status.id}`, p_status: status.status,
+            p_occurred_at: new Date(milliseconds).toISOString(),
+            p_error_code: status.errors?.[0]?.code == null ? null : String(status.errors[0].code),
+          });
+          processed++;
+        }
+      }
+      return response(200, { received: true, statuses: processed });
+    } catch { return response(503, { error: 'storage_unavailable' }); }
+  };
+}
+
 export function createWebhook({ env, fetcher = fetch, rpc = null }) {
   return async request => {
     const url = new URL(request.url);
@@ -104,26 +185,48 @@ export function templateMessage(job, env) {
   };
 }
 
-export function createWorker({ env, fetcher = fetch, rpc = null }) {
+export function createWorker({ env, fetcher = fetch, rpc = null, now = Date.now }) {
   return async request => {
     if (request.method !== 'POST') return response(405, { error: 'method_not_allowed' });
     const bearer = request.headers.get('Authorization')?.replace(/^Bearer /, '');
     if (!await sameSecret(bearer, env('WHATSAPP_WORKER_TOKEN'))) return response(401, { error: 'unauthorized' });
     if (env('WHATSAPP_DELIVERY_ENABLED') !== 'true') return response(200, { mode: 'disabled', processed: 0 });
+    const provider = env('WHATSAPP_PROVIDER') || 'meta';
+    if (!['meta', '360dialog_sandbox'].includes(provider)) return response(503, { error: 'provider_configuration' });
+    const sandbox = provider === '360dialog_sandbox';
+    let sandboxConfig;
+    if (sandbox) {
+      try {
+        sandboxConfig = sandboxConfiguration(env);
+        sandboxMessage({ kind: 'confirmation', phone: sandboxConfig.phone, payload: { slug: 'barbearia' } }, env);
+      } catch { return response(503, { error: 'sandbox_or_site_configuration' }); }
+      // Demonstração por texto: pausa após 24h. Uma nova sessão exige outra mensagem
+      // do testador para a 360dialog e a atualização explícita do início da sessão.
+      if (now() < sandboxConfig.instant || now() >= sandboxConfig.instant + 24 * 60 * 60_000) {
+        return response(200, { mode: 'sandbox_session_expired', processed: 0 });
+      }
+    }
     const version = env('WHATSAPP_API_VERSION') || 'v27.0';
     const phoneId = env('WHATSAPP_PHONE_NUMBER_ID');
-    if (!/^v\d+\.\d+$/.test(version) || !/^\d+$/.test(phoneId ?? '') || !env('WHATSAPP_ACCESS_TOKEN')) {
+    if (!sandbox && (!/^v\d+\.\d+$/.test(version) || !/^\d+$/.test(phoneId ?? '') || !env('WHATSAPP_ACCESS_TOKEN'))) {
       return response(503, { error: 'configuration_required' });
     }
     // Configurações ausentes são identificadas antes de retirar mensagens da fila.
     try {
-      for (const kind of ['confirmation', 'reminder', 'cancellation', 'offer']) {
+      for (const kind of sandbox ? [] : ['confirmation', 'reminder', 'cancellation', 'offer']) {
         templateMessage({ kind, phone: '5511999999999', payload: { slug: 'barbearia', name: 'Teste', studio: 'Espaço', date: '01/01/2030', time: '14:00' } }, env);
       }
     } catch { return response(503, { error: 'template_or_site_configuration' }); }
     try {
       const call = rpc ?? databaseRpc(env, fetcher);
-      const jobs = await call('za_claim_whatsapp_jobs', { p_limit: 3 });
+      let jobs;
+      if (sandbox) {
+        const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(sandboxConfig.key)));
+        const fingerprint = [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
+        jobs = await call('za_claim_whatsapp_sandbox_jobs', {
+          p_phone: sandboxConfig.phone, p_created_after: sandboxConfig.started, p_key_hash: fingerprint,
+        });
+      } else jobs = await call('za_claim_whatsapp_jobs', { p_limit: 3 });
       let processed = 0;
       for (const claimed of jobs) {
         const job = await call('za_prepare_whatsapp_job', { p_id: claimed.id, p_lease: claimed.lease_id });
@@ -132,13 +235,16 @@ export function createWorker({ env, fetcher = fetch, rpc = null }) {
         let provider = null;
         let code = 'network_or_response_unknown';
         try {
-          const result = await fetcher(`https://graph.facebook.com/${version}/${phoneId}/messages`, {
-            method: 'POST', headers: { Authorization: `Bearer ${env('WHATSAPP_ACCESS_TOKEN')}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(templateMessage(job, env)), signal: AbortSignal.timeout(10_000),
+          const body = sandbox ? sandboxMessage(job, env) : templateMessage(job, env);
+          const endpoint = sandbox ? 'https://waba-sandbox.360dialog.io/v1/messages' : `https://graph.facebook.com/${version}/${phoneId}/messages`;
+          const headers = sandbox ? { 'D360-API-KEY': sandboxConfig.key } : { Authorization: `Bearer ${env('WHATSAPP_ACCESS_TOKEN')}` };
+          const result = await fetcher(endpoint, {
+            method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(body), signal: AbortSignal.timeout(10_000),
           });
           const data = await result.json();
           if (result.ok && data.messages?.[0]?.id) {
-            status = 'submitted'; provider = data.messages[0].id; code = null;
+            status = 'submitted'; provider = (sandbox ? 'd360:' : '') + data.messages[0].id; code = null;
           } else if (result.status >= 400 && result.status < 500) {
             status = 'failed'; code = String(data.error?.code ?? result.status);
           }
