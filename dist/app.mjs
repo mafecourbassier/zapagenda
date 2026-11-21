@@ -2,7 +2,7 @@ import { icon } from "./assets/icons.mjs";
 import { agendaConnection, connectionError } from "./cloud.mjs";
 import {
   segments, money, dayKey, formatDay, timeLabel, timeValue, isFree,
-  suggestPlan, resolveRoute, bookingMessage, businessHours, availableSlots,
+  suggestPlan, resolveRoute, businessHours, availableSlots,
 } from "./model.mjs";
 
 const header = document.querySelector("#header");
@@ -232,7 +232,7 @@ function renderClientVisits(key) {
   const visits = state[key].appointments.filter(item => item.clientId === client);
   const booked = visits.filter(item => item.date === date && item.status === "booked")
     .sort((a, b) => a.start - b.start);
-  const history = visits.filter(item => ["completed", "canceled", "cancelled"].includes(item.status))
+  const history = visits.filter(item => !item.archived && ["completed", "canceled", "cancelled"].includes(item.status))
     .sort((a, b) => b.date.localeCompare(a.date) || b.start - a.start);
 
   const row = item => {
@@ -374,7 +374,7 @@ function renderWhatsAppDeliveries(key) {
   const info = state[key].notifications;
   if (!info) return "";
   const kinds = { confirmation: "Confirmação", reminder: "Lembrete", cancellation: "Cancelamento", offer: "Oferta de encaixe" };
-  const labels = { pending: "Na fila", sending: "Processando", submitted: "Recebida pela Meta", sent: "Enviada",
+  const labels = { pending: "Na fila", sending: "Processando", submitted: "Aceita pelo provedor", sent: "Enviada",
     delivered: "Entregue", read: "Lida", failed: "Falhou", canceled: "Cancelada", uncertain: "Revisar envio" };
   const rows = info.messages.map(item => `<li><div><strong>${safe(kinds[item.kind])} · ${safe(item.name)}</strong>
     <small>${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(item.dueAt))}</small></div>
@@ -382,6 +382,37 @@ function renderWhatsAppDeliveries(key) {
   return `<details class="panel whatsapp-deliveries"><summary>Notificações automáticas · ${info.deliveryEnabled ? "Ativadas" : "Em preparação"}</summary>
     ${rows ? `<ul>${rows}</ul>` : "<p>As notificações dos clientes que autorizarem o recebimento aparecerão aqui.</p>"}
   </details>`;
+}
+
+function renderHistoryTools(key) {
+  const history = state[key].history;
+  if (!history?.available) return "";
+  return `<div class="history-tools" aria-label="Gerenciar histórico">
+    <div><strong>Histórico da agenda</strong><p>${history.archivedCount
+      ? `${Number(history.archivedCount)} registros arquivados nesta conta.`
+      : "Organize os atendimentos encerrados e os avisos concluídos."}</p></div>
+    <div class="history-actions">
+      <button type="button" class="button button-outline tiny-button" data-action="history-clear"
+        ${history.clearableCount ? "" : "disabled"}>Limpar histórico</button>
+      ${history.archivedCount ? '<button type="button" class="button button-outline tiny-button" data-action="history-restore">Restaurar histórico</button>' : ""}
+    </div>
+  </div>`;
+}
+
+function showHistoryForm(key, restore) {
+  activeDialog = { kind: "history", key, restore };
+  modal(restore ? "Restaurar histórico" : "Limpar histórico",
+    restore ? "Os registros arquivados voltarão a aparecer nesta conta."
+      : "Os atendimentos realizados ou cancelados e os avisos concluídos serão ocultados apenas nesta conta.",
+    `<form id="history-form">
+      <p>As reservas confirmadas, os pedidos na fila e os envios pendentes continuam visíveis. Os dados e os valores dos atendimentos são preservados.</p>
+      ${restore ? "" : '<p>Você pode usar <strong>Restaurar histórico</strong> quando quiser.</p>'}
+      <p class="form-error" role="alert"></p>
+      <div class="history-actions">
+        <button type="button" class="button button-outline" data-action="close">Voltar</button>
+        <button type="submit" class="button button-primary">${restore ? "Restaurar histórico" : "Limpar histórico"}</button>
+      </div>
+    </form>`);
 }
 
 function renderClient(key) {
@@ -400,6 +431,7 @@ ${renderAgendaWeek(key, false)}
       ${renderClientVisits(key)}
 ${renderClientQueue(key)}
     </div>
+    ${renderHistoryTools(key)}
     ${renderWhatsAppPreferences(key)}
   </section>`;
 }
@@ -521,7 +553,7 @@ function renderDashboard() {
   const completed = data.appointments.filter(item => item.recovered && item.status === "completed");
   const recovered = completed.reduce((sum, item) => sum + item.price, 0);
   const waiting = data.requests.filter(item => item.status === "waiting" && item.clientId).length;
-  const appointments = data.appointments.filter(item => item.date === agendaDay(panelSegment, true)).sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start);
+  const appointments = data.appointments.filter(item => !item.archived && item.date === agendaDay(panelSegment, true)).sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start);
   main.innerHTML = `<section class="frame dashboard">
     ${renderConnectionState()}
     <div class="dashboard-intro">
@@ -538,7 +570,7 @@ function renderDashboard() {
 <div class="dashboard-grid">
       <section class="panel" aria-labelledby="agenda-titulo">
         <div class="panel-head"><h2 id="agenda-titulo">Agenda</h2></div>
-        <ul class="appointment-list">${appointments.map(appointment => renderAppointment(appointment, segment)).join("")}</ul>
+        ${appointments.length ? `<ul class="appointment-list">${appointments.map(appointment => renderAppointment(appointment, segment)).join("")}</ul>` : '<p class="agenda-empty">Nenhum atendimento visível neste dia.</p>'}
         ${renderWaitingList({ ...data, requests: data.requests.filter(item => item.clientId && item.date === agendaDay(panelSegment, true)) }, segment)}
       </section>
       <section class="panel" aria-labelledby="encaixe-titulo">
@@ -546,11 +578,7 @@ function renderDashboard() {
         ${renderAgendaGap(data, segment)}
       </section>
     </div>
-    <section class="messages-panel" aria-labelledby="mensagens-titulo">
-      <div class="service-symbol">${icon("phone", 24)}</div>
-      <div><h2 id="mensagens-titulo">WhatsApp assistido</h2><p>Monte a confirmação ou o lembrete. Você copia e envia para o cliente.</p></div>
-      <button class="button button-outline" data-action="messages" ${booked ? "" : "disabled"}>Preparar mensagem ${icon("arrow", 17)}</button>
-    </section>
+    ${renderHistoryTools(panelSegment)}
     ${renderWhatsAppDeliveries(panelSegment)}
     <div class="dashboard-foot"><p>Horários em Mogi das Cruzes · Expediente das 08h às 18h · Intervalo das 12h às 13h.</p></div>
   </section>`;
@@ -693,9 +721,20 @@ function showGapForm() {
     <label>Dia<select name="date" required>${dateOptions(agendaDay(panelSegment, true))}</select></label>
     <div class="fields-two"><label>Início<input name="start" type="time" value="14:00" required></label>
     <label>Fim<input name="end" type="time" value="15:30" required></label></div>
+    <p class="gap-published" data-published-gaps></p>
     <p class="form-error" role="alert"></p>
     <button class="button button-primary full" type="submit">Buscar encaixes ${icon("arrow", 19)}</button>
   </form>`);
+  refreshPublishedGaps(dialogContent.querySelector("#gap-form"));
+}
+
+function refreshPublishedGaps(form) {
+  const date = form.elements.date.value;
+  const ranges = state[panelSegment].gaps.filter(gap => gap.date === date)
+    .sort((a, b) => a.start - b.start);
+  form.querySelector("[data-published-gaps]").textContent = ranges.length
+    ? "Faixas já publicadas: " + ranges.map(gap => `${timeLabel(gap.start)}–${timeLabel(gap.end)}`).join(" · ")
+    : "Nenhuma faixa publicada neste dia.";
 }
 
 
@@ -732,49 +771,6 @@ function showClientOffer(id) {
     '<button class="button button-primary full" data-action="accept">Aceitar horário</button>');
 }
 
-function showMessages() {
-  const key = panelSegment;
-  const appointments = state[key].appointments
-    .filter(item => item.status === "booked")
-    .sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start);
-  if (!appointments.length) return;
-  activeDialog = { kind: "messages", key };
-  modal("Preparar mensagem", "Escolha um horário. Copie o texto e envie pelo WhatsApp do estabelecimento.", `<div class="message-form" id="message-form">
-    <label>Agendamento<select name="appointment">
-      ${appointments.map(item => `<option value="${safe(item.id)}">${safe(item.name)} · ${formatDay(item.date)} · ${timeLabel(item.start)}</option>`).join("")}
-    </select></label>
-    <label>Tipo de mensagem<select name="kind"><option value="reminder">Lembrete</option><option value="confirmation">Confirmação</option></select></label>
-    <label>Mensagem <textarea name="text" rows="5" readonly></textarea></label>
-    <button class="button button-primary full" data-action="copy-message">Copiar mensagem ${icon("link", 18)}</button>
-    <p class="message-feedback" role="status"></p>
-  </div>`);
-  updateMessage(dialogContent.querySelector("#message-form"));
-}
-
-function updateMessage(form) {
-  const appointment = state[activeDialog.key].appointments.find(item => item.id === form.querySelector('[name="appointment"]').value && item.status === "booked");
-  const kind = form.querySelector('[name="kind"]').value;
-  form.querySelector("textarea").value = appointment ? bookingMessage(kind, appointment, segments[activeDialog.key].studio) : "";
-  form.querySelector(".message-feedback").textContent = appointment ? "" : "Esse agendamento já não está disponível.";
-  form.querySelector('[data-action="copy-message"]').disabled = !appointment;
-}
-
-async function copyMessage() {
-  const message = dialogContent.querySelector("#message-form textarea");
-  const feedback = dialogContent.querySelector(".message-feedback");
-  if (!message?.value || !feedback) return;
-  try {
-    await navigator.clipboard.writeText(message.value);
-    feedback.textContent = "Mensagem copiada. Cole na conversa com o cliente.";
-  } catch {
-    message.focus();
-    message.select();
-    feedback.textContent = "O texto está selecionado. Use Ctrl+C ou a opção Copiar.";
-  }
-}
-
-
-
 function acceptOffer() {
   if (activeDialog?.kind !== "offer") return;
   const { key, requestId, id } = activeDialog;
@@ -800,12 +796,13 @@ document.addEventListener("click", event => {
   }
   if (action === "close") dialog.close();
   if (action === "gap") showGapForm();
+  if (action === "history-clear" || action === "history-restore") {
+    showHistoryForm(panelSegment, action === "history-restore");
+  }
   if (action === "offer") showOffer(id, Number(start));
   if (action === "client-offer") showClientOffer(id);
   if (action === "accept" && isClient(route)) acceptOffer();
-  if (action === "messages") showMessages();
   if (action === "whatsapp-preferences" && isClient(route)) showWhatsAppPreferences(panelSegment);
-  if (action === "copy-message") void copyMessage();
   if (action === "cancel" || action === "complete") {
     void changeCloudAgenda(panelSegment, action, { id }, action === "cancel" ? "Horário liberado e fila consultada." : "Atendimento concluído.");
   }
@@ -813,11 +810,8 @@ document.addEventListener("click", event => {
 });
 
 document.addEventListener("change", event => {
-  const messageForm = event.target.closest("#message-form");
-  if (messageForm) {
-    updateMessage(messageForm);
-    return;
-  }
+  const gapForm = event.target.closest("#gap-form");
+  if (gapForm) { refreshPublishedGaps(gapForm); return; }
   const form = event.target.closest("#booking-form");
   if (!form || !["date", "service"].includes(event.target.name)) return;
   refreshBookingOptions(form, activeDialog.key);
@@ -834,12 +828,23 @@ document.addEventListener("submit", event => {
     void changeCloudAgenda(key, "whatsapp-preferences", { phone: fields.get("phone"), enabled: fields.get("enabled") === "on" }, "Preferência de WhatsApp salva.");
     return;
   }
+  if (kind === "history") {
+    const restore = activeDialog.restore;
+    void changeCloudAgenda(key, "history", { restore }, restore
+      ? "Histórico restaurado nesta conta." : "Histórico limpo. Você pode restaurá-lo quando quiser.");
+    return;
+  }
   if (!["book", "wait", "gap"].includes(kind)) return;
   const fields = new FormData(form);
   const start = kind === "book" ? Number(fields.get("start")) : timeValue(fields.get("start"));
   const payload = { id: operationId, date: fields.get("date"), start,
     serviceId: fields.get("service"), name: (fields.get("name") ?? "").trim() };
   if (kind !== "book") payload.end = timeValue(fields.get("end"));
+  if (kind === "gap" && state[key].gaps.some(gap => gap.date === payload.date
+    && gap.start < payload.end && gap.end > payload.start)) {
+    form.querySelector(".form-error").textContent = "Essa faixa coincide com um horário já publicado. Escolha outro intervalo.";
+    return;
+  }
   const message = { book: "Reserva confirmada.", wait: "Pedido registrado. Acompanhe as ofertas em Meus encaixes.", gap: "Janela publicada. A fila foi consultada automaticamente." };
   void changeCloudAgenda(key, kind, payload, message[kind]);
 });
